@@ -103,14 +103,19 @@ function evaluateInstance(params: {
     }
     // Transcript writes advance the mutation time; a later append keeps the prefix usable.
     fresh = checkpoint.mtimeMs >= file.mtimeMs;
-  } else if (checkpoint.kind === "sqlite" && file.kind === "sqlite") {
+  } else if (
+    operation.kind === "overview" &&
+    checkpoint.kind === "sqlite" &&
+    file.kind === "sqlite"
+  ) {
     if ((checkpoint.generation ?? null) !== (file.generation ?? null)) {
-      // A rewrite can shorten the transcript; only the refresh owner can rebuild it.
+      // Discovery and the cache crossed a rewrite; the refresh owner rebuilds it.
       return { state: "pending" };
     }
     // A same-generation append can commit after discovery; newer cache stays usable.
     fresh = checkpoint.maxSeq > (file.maxSeq ?? 0) || isUsageCostRollupFresh({ checkpoint, file });
   } else {
+    // usage.cost rejects a checkpoint beyond the current transcript, such as a shorter rewrite.
     if (!canUseUsageCostRollupForPartial({ checkpoint, file })) {
       return { state: "pending" };
     }
