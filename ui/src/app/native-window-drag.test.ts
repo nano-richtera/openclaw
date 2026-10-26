@@ -59,29 +59,26 @@ describe("native window drag", () => {
     expect(postMessage).toHaveBeenCalledTimes(2);
   });
 
-  it("leaves presses on interactive children alone", () => {
-    const postMessage = installBridge();
-    const { button } = buildHeader();
-    const event = mouseDown(button);
-    expect(postMessage).not.toHaveBeenCalled();
-    expect(event.defaultPrevented).toBe(false);
-  });
-
-  it("ignores secondary buttons and already-handled presses", () => {
-    const postMessage = installBridge();
-    const { header } = buildHeader();
-    mouseDown(header, { button: 2 });
-    const handled = new MouseEvent("mousedown", { cancelable: true, button: 0 });
-    handled.preventDefault();
-    beginNativeWindowDrag(handled);
-    expect(postMessage).not.toHaveBeenCalled();
-  });
-
-  it("keeps default behavior without the WebKit bridge", () => {
-    const { header } = buildHeader();
-    const event = mouseDown(header);
-    expect(event.defaultPrevented).toBe(false);
-  });
+  it.each(["interactive child", "secondary button", "handled", "no bridge"])(
+    "does not drag on %s",
+    (reason) => {
+      const postMessage = reason === "no bridge" ? undefined : installBridge();
+      const { header, button } = buildHeader();
+      const event = new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: reason === "secondary button" ? 2 : 0,
+      });
+      if (reason === "handled") {
+        event.preventDefault();
+      }
+      (reason === "interactive child" ? button : header).dispatchEvent(event);
+      if (postMessage) {
+        expect(postMessage).not.toHaveBeenCalled();
+      }
+      expect(event.defaultPrevented).toBe(reason === "handled");
+    },
+  );
 });
 
 describe("native window drag from top inset", () => {

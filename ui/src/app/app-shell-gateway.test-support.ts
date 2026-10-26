@@ -8,22 +8,15 @@ import { ShellGatewayOwner, type ShellGatewayHost } from "./app-shell-gateway.ts
 import type { ApplicationContext, ApplicationGatewaySnapshot } from "./context.ts";
 
 export function createProfileAppearanceGateway(profileId: string | null) {
-  const pendingResponses: Array<(accent: string) => void> = [];
+  const pendingResponses: Array<ReturnType<typeof createDeferred<ProfileAppearanceReply>>> = [];
   let requestStarted = createDeferred();
-  const request = vi.fn(
-    () =>
-      new Promise<ProfileAppearanceReply>((resolve) => {
-        pendingResponses.push((accent) =>
-          // Existing personal navigation keeps this appearance fixture out of legacy inventory.
-          resolve(profileAppearanceReply(accent)),
-        );
-        requestStarted.resolve();
-      }),
-  );
-  const client = {
-    gatewayUrl: "ws://profile.test",
-    request,
-  } as unknown as GatewayBrowserClient;
+  const request = vi.fn(() => {
+    const reply = createDeferred<ProfileAppearanceReply>();
+    pendingResponses.push(reply);
+    requestStarted.resolve();
+    return reply.promise;
+  });
+  const client = { gatewayUrl: "ws://profile.test", request } as unknown as GatewayBrowserClient;
   const snapshot = {
     client,
     phase: "connected",
@@ -78,13 +71,11 @@ export function createProfileAppearanceGateway(profileId: string | null) {
       const respond = pendingResponses.shift();
       requestStarted = createDeferred();
       expect(respond, "pending users.prefs.get response").toBeDefined();
-      // Config reconciliation can also refresh the theme. Arm this only when
-      // releasing this request, after any synchronous reconciliation has finished.
-      const refreshed = new Promise<void>((resolve) => {
-        refreshTheme.mockImplementationOnce(resolve);
-      });
-      respond!(accent);
-      return refreshed;
+      // Arm after synchronous config reconciliation, which may also refresh the theme.
+      const refreshed = createDeferred();
+      refreshTheme.mockImplementationOnce(refreshed.resolve);
+      respond!.resolve(profileAppearanceReply(accent));
+      return refreshed.promise;
     },
     context,
     host,
