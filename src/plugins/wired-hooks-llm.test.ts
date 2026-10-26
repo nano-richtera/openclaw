@@ -69,3 +69,27 @@ it.each([
   expect(readMessages).not.toHaveBeenCalled();
   expect(readError).not.toHaveBeenCalled();
 });
+
+it("preserves Incognito policy order and fail-closed behavior", async () => {
+  const calls: string[] = [];
+  const { runner } = createHookRunnerWithRegistry(
+    ["first", "second"].map((name, index) => ({
+      hookName: "before_tool_call",
+      priority: 10 - index * 5,
+      handler: () => {
+        calls.push(name);
+        if (name === "second") {
+          throw new Error("policy unavailable");
+        }
+      },
+    })),
+    { failurePolicyByHook: { before_tool_call: "fail-closed" } },
+  );
+  await expect(
+    runner.runBeforeToolCall(
+      { toolName: "exec", params: { command: "echo private" } },
+      { sessionKey: "agent:main:dashboard:incognito-test", toolName: "exec" },
+    ),
+  ).rejects.toThrow("policy unavailable");
+  expect(calls).toEqual(["first", "second"]);
+});

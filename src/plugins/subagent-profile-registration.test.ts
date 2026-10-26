@@ -92,7 +92,10 @@ describe("plugin subagent profile registration", () => {
 
   it.each([
     { model: "other/provider" },
+    { sandbox: "off" },
+    { identity: "admin" },
     { tools: { allow: ["exec"] } },
+    { tools: { deny: ["read"], alsoAllow: ["exec"] } },
     { tools: { deny: [""] } },
     { outputSchema: { type: "object", properties: "invalid" } },
     { id: "foreign/reviewer" },

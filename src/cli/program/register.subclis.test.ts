@@ -41,6 +41,7 @@ const mocks = vi.hoisted(() => {
     ),
     gateway: registrar("gateway", [], "call").register,
     modelsStatus: vi.fn(async () => {}),
+    statusJson: vi.fn(async () => {}),
     daemonStatus: vi.fn(async () => {}),
   };
 });
@@ -74,6 +75,8 @@ vi.mock("../command-execution-startup.js", () => ({
 vi.mock("../../commands/models/list.status-command.js", () => ({
   modelsStatusCommand: mocks.modelsStatus,
 }));
+// mock-isolation: Verify lean JSON dispatch without collecting live status.
+vi.mock("../../commands/status-json.js", () => ({ statusJsonCommand: mocks.statusJson }));
 // mock-isolation: Route dispatch stops before opening daemon service state.
 vi.mock("../daemon-cli/status.js", () => ({ runDaemonStatus: mocks.daemonStatus }));
 const originalArgv = process.argv;
@@ -172,6 +175,27 @@ it("routes local runtime intent without config or plugin startup", async () => {
     expect.objectContaining({
       startupPolicy: expect.objectContaining({ skipConfigGuard: true, loadPlugins: false }),
     }),
+  );
+});
+
+it("routes status --json through the lean JSON command", async () => {
+  await expect(
+    tryRouteCli([
+      "node",
+      "openclaw",
+      "status",
+      "--json",
+      "--deep",
+      "--usage",
+      "--agent",
+      "beta",
+      "--timeout",
+      "5000",
+    ]),
+  ).resolves.toBe(true);
+  expect(mocks.statusJson).toHaveBeenCalledExactlyOnceWith(
+    { deep: true, all: false, usage: true, agent: "beta", timeoutMs: 5000 },
+    defaultRuntime,
   );
 });
 
