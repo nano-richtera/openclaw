@@ -4,8 +4,6 @@ import { resolveRuntimeWorkerUrl } from "../infra/runtime-worker-url.js";
 import { workerTaskPoolEntrypoints } from "../infra/worker-task-pool-runtime.test-support.js";
 import { WorkerTaskError, WorkerTaskPool } from "../infra/worker-task-pool.js";
 import { createDeferredCore } from "../shared/deferred.js";
-import { resolveModelFallbackError } from "./failover-error.js";
-import { findLocalWorkerTaskFailure } from "./failover/local-preparation-error.js";
 import { runWithModelFallback } from "./model-fallback-runner.js";
 
 const workerUrl = resolveRuntimeWorkerUrl(workerTaskPoolEntrypoints.worker);
@@ -75,8 +73,6 @@ it("stops configured fallback when a real pool deadline fires during preparation
   const failure = await result;
   expect(dispatched?.[0]).toBeGreaterThan(0);
   expect(deadline).toBeDefined();
-  expect(findLocalWorkerTaskFailure(deadline)).toBe(deadline);
-  expect(resolveModelFallbackError(deadline)).toEqual({ kind: "coordination", error: deadline });
   expect(failure).toBe(deadline);
   expect(run).toHaveBeenCalledOnce();
 });

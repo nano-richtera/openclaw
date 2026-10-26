@@ -11,27 +11,22 @@ import { TOOL_CALL_RAW_TOOL_NAME } from "./tool-search-types.js";
 const declared = (value: boolean) => ({ declaredReplaySafe: () => value });
 
 describe("agent tool replay safety", () => {
-  it("allows only audited unconditional core tools", () => {
-    expect(
-      ["search", "progress_card", "process", "vendor_widget"].map((name) => replaySafe({ name })),
-    ).toEqual([true, false, false, false]);
-  });
-
-  it("requires extension-owned tools to opt in even when they reuse an audited name", () => {
-    const pluginTool = { name: "search" };
-    expect(replaySafe(pluginTool, declared(false))).toBe(false);
-  });
-
-  it("accepts opted-in extension tools only for audited names", () => {
-    expect(replaySafe({ name: "x_search" }, declared(true))).toBe(true);
-    expect(replaySafe({ name: "vendor_widget" }, declared(true))).toBe(false);
-  });
-
-  it("accepts owner-declared concrete tools for restart-safe turns", () => {
-    const pluginTool = { name: "vendor_widget" };
-
-    expect(restartSafe(pluginTool, declared(true))).toBe(true);
-    expect(restartSafe(pluginTool, declared(false))).toBe(false);
+  it.each([
+    ["search", undefined, true, true],
+    ["progress_card", undefined, false, false],
+    ["process", undefined, false, false],
+    ["vendor_widget", undefined, false, false],
+    ["search", false, false, false],
+    ["x_search", true, true, true],
+    ["vendor_widget", true, false, true],
+    ["vendor_widget", false, false, false],
+    ["memory_search", true, false, true],
+  ] as const)("classifies %s with owner declaration %s", (name, declaration, replay, restart) => {
+    const options = declaration === undefined ? undefined : declared(declaration);
+    expect([replaySafe({ name }, options), restartSafe({ name }, options)]).toEqual([
+      replay,
+      restart,
+    ]);
   });
 
   it("admits only the concrete Tool Search dispatcher for explicit restart recovery", () => {
@@ -56,10 +51,6 @@ describe("agent tool replay safety", () => {
     expect(replaySafe({ ...reader })).toBe(false);
     expect(replaySafe(reader, declared(false))).toBe(false);
     expect(collectReplaySafeToolNames([reader, ordinaryTool])).toEqual(new Set());
-  });
-
-  it("rejects memory_search because it records durable recall signals", () => {
-    expect(replaySafe({ name: "memory_search" }, declared(true))).toBe(false);
   });
 
   it("rejects duplicate names from name-only replay metadata", () => {

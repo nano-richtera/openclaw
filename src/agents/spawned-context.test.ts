@@ -6,20 +6,19 @@ import {
   resolveSpawnedWorkspaceInheritance as inheritWorkspace,
 } from "./spawned-context.js";
 
+const group = { groupId: "g-1", groupChannel: "slack", workspaceDir: "/tmp/ws" };
 it("trims spawned metadata text fields and drops empties", () => {
   expect(
     normalize({
       spawnedBy: "  agent:main:subagent:1 ",
-      groupId: "  group-1 ",
+      groupId: "  g-1 ",
       groupChannel: "  slack ",
       groupSpace: " ",
       workspaceDir: " /tmp/ws ",
     }),
   ).toEqual({
     spawnedBy: "agent:main:subagent:1",
-    groupId: "group-1",
-    groupChannel: "slack",
-    workspaceDir: "/tmp/ws",
+    ...group,
   });
 });
 
@@ -27,15 +26,13 @@ it("maps agent group fields to run metadata shape", () => {
   expect(
     mapContext({
       agentGroupId: "g-1",
-      agentGroupChannel: "telegram",
+      agentGroupChannel: "slack",
       agentGroupSpace: "topic:123",
       workspaceDir: "/tmp/ws",
     }),
   ).toEqual({
-    groupId: "g-1",
-    groupChannel: "telegram",
+    ...group,
     groupSpace: "topic:123",
-    workspaceDir: "/tmp/ws",
   });
 });
 
