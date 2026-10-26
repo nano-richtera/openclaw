@@ -3,6 +3,7 @@ import { flush } from "solid-js";
 import { afterEach, expect, it, onTestFinished, vi } from "vitest";
 import { captureI18nStateForTesting } from "../../i18n/lib/translate.test-support.ts";
 import { i18n } from "../../i18n/lib/translate.ts";
+import { domProbe } from "../../test-helpers/dom-probe.ts";
 import { mountSolid, cleanupSolid } from "../../test-helpers/mount-solid.ts";
 import {
   renderPluginCompatibilityNotices,
@@ -17,7 +18,7 @@ function render(content: () => JSX.Element, container = document.createElement("
   const view = mountSolid(content, { container });
   views.set(container, view);
   flush();
-  return container;
+  return { container, ...domProbe(container) };
 }
 afterEach(cleanupSolid);
 const notice = {
@@ -34,7 +35,7 @@ function renderNotice(overrides: Partial<typeof notice> = {}) {
 }
 
 it("omits compatibility notices for plugins without observed deprecated API usage", () => {
-  const container = render(() => renderPluginCompatibilityNotices(undefined));
+  const { container } = render(() => renderPluginCompatibilityNotices(undefined));
   expect(container.children).toHaveLength(0);
 });
 
@@ -54,7 +55,7 @@ it("localizes a mounted compatibility notice from its structured removal date", 
   });
   onTestFinished(() => translation.mockRestore());
   await i18n.setLocale("en");
-  const container = renderNotice({ message: "Server-only English fallback", apis: [] });
+  const { container } = renderNotice({ message: "Server-only English fallback" });
   expect(container.textContent).toBe(
     "Uses OpenClaw APIs that retire on Dec 31, 2026. It keeps working until then; check for a plugin update. Details",
   );
@@ -64,10 +65,9 @@ it("localizes a mounted compatibility notice from its structured removal date", 
 });
 
 it("uses catalog copy when a compatibility notice has no removal date", () => {
-  const container = renderNotice({
+  const { container } = renderNotice({
     message: "Server-only English fallback",
     removalDate: undefined,
-    apis: [],
   });
   expect(container.textContent).toBe(
     "Uses older OpenClaw APIs. It keeps working for now; check for a plugin update. Details",
@@ -80,8 +80,8 @@ it.each([
 ])("renders repository identity from %s", (source) => {
   const result = createDiscoveryDetail();
   result.detail.repositoryUrl = source;
-  const container = render(() => renderPluginMetadata(result));
-  const link = container.querySelector(".plugin-metadata__repository");
+  const { query } = render(() => renderPluginMetadata(result));
+  const link = query(".plugin-metadata__repository");
   expect(link?.getAttribute("href")).toBe("https://github.com/Martian-Engineering/lossless-claw");
   expect(link?.textContent).toContain("Martian-Engineering/lossless-claw");
   expect(link?.querySelector("svg")).not.toBeNull();
@@ -91,36 +91,31 @@ it("keeps documentation distinct and removes the catalog promotion sections", ()
   const result = createDiscoveryDetail();
   result.detail.repositoryUrl = "https://github.com/Acme/plugin";
   result.detail.documentationUrl = "https://github.com/Acme/plugin/blob/main/docs/setup.md";
-  const container = render(() => renderPluginMetadata(result));
-  expect(
-    [...container.querySelectorAll("section")].map(
-      (section) => section.querySelector("h2")?.textContent,
-    ),
-  ).toEqual(["Repository", "Documentation"]);
-  expect(container.querySelector(".plugin-metadata__repository")?.textContent).toContain(
-    "Acme/plugin",
-  );
+  const { container, text, all, query } = render(() => renderPluginMetadata(result));
+  expect([...all("section")].map((section) => section.querySelector("h2")?.textContent)).toEqual([
+    "Repository",
+    "Documentation",
+  ]);
+  expect(text(".plugin-metadata__repository")).toContain("Acme/plugin");
   expect(container.textContent).not.toContain("View on ClawHub");
-  expect(
-    container.querySelector('a[href="https://github.com/Acme/plugin/blob/main/docs/setup.md"]'),
-  ).not.toBeNull();
+  expect(query('a[href="https://github.com/Acme/plugin/blob/main/docs/setup.md"]')).not.toBeNull();
 });
 
 it("omits absent publishers and only badges authoritative publisher status", () => {
   const result = createDiscoveryDetail();
   result.plugin.catalog.official = true;
   result.detail.author = { handle: "acme", displayName: "Acme" };
-  const container = render(() => renderPluginPublisher(undefined));
+  const { container, query, text } = render(() => renderPluginPublisher(undefined));
   expect(container.children).toHaveLength(0);
   render(() => renderPluginPublisher(undefined, "Local publisher"), container);
-  expect(container.querySelector("strong")?.textContent).toBe("Local publisher");
+  expect(text("strong")).toBe("Local publisher");
   render(() => renderPluginPublisher(result), container);
-  expect(container.querySelector('a[href="https://clawhub.ai/acme"]')).not.toBeNull();
-  expect(container.querySelector("img")).toBeNull();
-  expect(container.querySelector('[aria-label="Official"]')).toBeNull();
+  expect(query('a[href="https://clawhub.ai/acme"]')).not.toBeNull();
+  expect(query("img")).toBeNull();
+  expect(query('[aria-label="Official"]')).toBeNull();
   result.detail.author.official = true;
   render(() => renderPluginPublisher(result), container);
-  expect(container.querySelector('[aria-label="Official"]')).not.toBeNull();
+  expect(query('[aria-label="Official"]')).not.toBeNull();
 });
 
 it.each([
@@ -132,7 +127,7 @@ it.each([
   const url = "https://clawhub.ai/acme/plugins/demo/security-audit?version=1.0";
   const result = createDiscoveryDetail();
   result.detail.security = { status: verdict, verdict, auditUrl: url };
-  const container = render(() => renderPluginMetadata(result));
-  expect(container.querySelectorAll(".is-filled")).toHaveLength(count);
-  expect(container.querySelector("a")?.getAttribute("href")).toBe(url);
+  const { all, attr } = render(() => renderPluginMetadata(result));
+  expect(all(".is-filled")).toHaveLength(count);
+  expect(attr("a", "href")).toBe(url);
 });

@@ -22,8 +22,10 @@ const nativeFetch = globalThis.fetch.bind(globalThis);
 const svg = (body: string, attributes = 'viewBox="0 0 24 24"') =>
   `<svg xmlns="http://www.w3.org/2000/svg" ${attributes}>${body}</svg>`;
 const square = '<path d="M4 4h16v16H4Z"/>';
-const svgResponse = () =>
-  new Response(svg(square), { headers: { "content-type": "image/svg+xml" } });
+const response = (body = svg(square), contentType = "image/svg+xml") =>
+  new Response(body, { headers: { "content-type": contentType } });
+const mockSvg = (body = square) =>
+  vi.spyOn(globalThis, "fetch").mockImplementation(async () => response(svg(body)));
 const common = {
   auth: { settings: { token: "synthetic-activity-token" } },
   resourceBasePath: "/openclaw",
@@ -53,7 +55,7 @@ describe.runIf("__vitest_browser__" in globalThis)("plugin activity icon decoder
     if (source === undefined) {
       throw new Error(`Unexpected activity glyph route: ${url.href}`);
     }
-    return new Response(source, { headers: { "content-type": "image/svg+xml" } });
+    return response(source);
   };
 
   beforeAll(() => vi.stubGlobal("fetch", fetchGlyph));
@@ -105,7 +107,7 @@ describe.runIf("__vitest_browser__" in globalThis)("plugin activity icon decoder
     const fetch = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(null, { status: 401 }))
-      .mockResolvedValue(svgResponse());
+      .mockImplementation(async () => response());
     const url = await loadActivity({
       ...activityParams("custom-plugin"),
       auth: {
@@ -130,7 +132,7 @@ describe.runIf("__vitest_browser__" in globalThis)("plugin activity icon decoder
     const fetch = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response("unavailable", { status: 503 }))
-      .mockImplementation(async () => svgResponse());
+      .mockImplementation(async () => response());
     const params = {
       ...common,
       url: "/__openclaw__/plugin-theme-art/test/theme/icon/mark?v=recover",
@@ -143,7 +145,7 @@ describe.runIf("__vitest_browser__" in globalThis)("plugin activity icon decoder
   });
 
   it("rasterizes plugin theme artwork once per content URL, including concurrent callers", async () => {
-    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => svgResponse());
+    const fetch = mockSvg();
     const params = { ...common, url: "/__openclaw__/plugin-theme-art/test/theme/hat/beret?v=1" };
     const [first, concurrent] = await Promise.all([loadTheme(params), loadTheme(params)]);
     expect(first).not.toBeNull();
@@ -161,69 +163,38 @@ describe.runIf("__vitest_browser__" in globalThis)("plugin activity icon decoder
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
-  it("rasterizes an ordinary transform and a long valid transform list", async ({
-    onTestFinished,
-  }) => {
-    const fetch = vi.spyOn(globalThis, "fetch");
-    fetch.mockImplementation(
-      async () =>
-        new Response(svg('<path d="M4 4h16v16H4Z" transform="translate(1 2) scale(1.5)"/>'), {
-          headers: { "content-type": "image/svg+xml" },
-        }),
-    );
-    const ordinary = await loadActivity(activityParams("ordinary-transform"));
-    expect(ordinary).not.toBeNull();
-    onTestFinished(() => URL.revokeObjectURL(ordinary!));
-    const ordinaryBlob = await (await nativeFetch(ordinary!)).blob();
-    expect(ordinaryBlob.type).toBe("image/png");
-
-    fetch.mockImplementation(
-      async () =>
-        new Response(svg(`<path d="M4 4h16v16H4Z" transform="${"scale(1) ".repeat(40)}"/>`), {
-          headers: { "content-type": "image/svg+xml" },
-        }),
-    );
-    const longList = await loadActivity(activityParams("long-transform"));
-    expect(longList).not.toBeNull();
-    onTestFinished(() => URL.revokeObjectURL(longList!));
-    const longBlob = await (await nativeFetch(longList!)).blob();
-    expect(longBlob.type).toBe("image/png");
-  });
+  it.for(["translate(1 2) scale(1.5)", "scale(1) ".repeat(40)])(
+    "rasterizes valid transform %s",
+    async (transform, { onTestFinished }) => {
+      mockSvg(`<path d="M4 4h16v16H4Z" transform="${transform}"/>`);
+      const url = await loadActivity(activityParams("valid-transform"));
+      expect(url).not.toBeNull();
+      onTestFinished(() => URL.revokeObjectURL(url!));
+      expect((await (await nativeFetch(url!)).blob()).type).toBe("image/png");
+    },
+  );
 
   it("rejects an unclosed transform through the activity loader without stalling", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(
-      async () =>
-        new Response(
-          svg(`<path d="M4 4h16v16H4Z" transform="scale(${"\t\t)scale(".repeat(24)}"/>`),
-          { headers: { "content-type": "image/svg+xml" } },
-        ),
-    );
+    mockSvg(`<path d="M4 4h16v16H4Z" transform="scale(${"\t\t)scale(".repeat(24)}"/>`);
     const started = performance.now();
     await expect(loadActivity(activityParams("stalling-transform"))).resolves.toBeNull();
     expect(performance.now() - started).toBeLessThan(250);
   });
 
-  it.each<[string, string, string]>([
-    ["package PNG", "image/png", "png"],
-    ["active SVG", "image/svg+xml", svg("<script>alert(1)</script>")],
-    ["oversized element tree", "image/svg+xml", svg("<path/>".repeat(4))],
-    ...(
-      [
-        ["event attribute", 'viewBox="0 0 24 24" onload="alert(1)"'],
-        ["unknown attribute", 'viewBox="0 0 24 24" href="https://example.test/icon"'],
-        ["namespaced attribute", 'viewBox="0 0 24 24" xmlns:other="urn:other" other:width="24"'],
-        ["oversized view box", 'viewBox="0 0 4097 24"'],
-        ["oversized dimensions", 'width="24" height="4097"'],
-      ] satisfies Array<[string, string]>
-    ).map(([name, attributes]): [string, string, string] => [
-      name,
-      "image/svg+xml",
-      svg(square, attributes),
-    ]),
-  ])("keeps %s out of compact activity", async (_name, contentType, body) => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(
-      async () => new Response(body, { headers: { "content-type": contentType } }),
-    );
+  it.each<[string, string, string?]>([
+    ["package PNG", "png", "image/png"],
+    ["active SVG", svg("<script>alert(1)</script>")],
+    ["oversized element tree", svg("<path/>".repeat(4))],
+    ["event attribute", svg(square, 'viewBox="0 0 24 24" onload="alert(1)"')],
+    ["unknown attribute", svg(square, 'viewBox="0 0 24 24" href="https://example.test/icon"')],
+    [
+      "namespaced attribute",
+      svg(square, 'viewBox="0 0 24 24" xmlns:other="urn:other" other:width="24"'),
+    ],
+    ["oversized view box", svg(square, 'viewBox="0 0 4097 24"')],
+    ["oversized dimensions", svg(square, 'width="24" height="4097"')],
+  ])("keeps %s out of compact activity", async (_name, body, contentType) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => response(body, contentType));
     await expect(loadActivity(activityParams("invalid-activity"))).resolves.toBeNull();
   });
 });

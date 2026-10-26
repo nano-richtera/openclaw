@@ -11,8 +11,8 @@ import { createDiscoveryDetail, createPlugin } from "./plugins-page.test-support
 
 afterEach(cleanupSolid);
 
-function mount(result = createDiscoveryDetail(), overrides: Partial<Props> = {}) {
-  const props: Props = {
+function detailProps(result = createDiscoveryDetail(), overrides: Partial<Props> = {}): Props {
+  return {
     connected: true,
     result,
     read: { receipt: () => null, value: () => null },
@@ -25,7 +25,9 @@ function mount(result = createDiscoveryDetail(), overrides: Partial<Props> = {})
     iconUrls: {},
     ...overrides,
   };
-  const view = mountSolid(() => <PluginCatalogDetail {...props} />);
+}
+function mount(result = createDiscoveryDetail(), overrides: Partial<Props> = {}) {
+  const view = mountSolid(() => <PluginCatalogDetail {...detailProps(result, overrides)} />);
   flush();
   return { container: view.container, ...domProbe(view.container) };
 }
@@ -121,18 +123,7 @@ it("retains catalog controls while refreshing the same accepted plugin", async (
       setReceipt({ result: pending.promise });
     };
     return (
-      <PluginCatalogDetail
-        connected
-        result={result()}
-        read={{ receipt, value }}
-        backHref="/plugins"
-        onBack={() => {}}
-        onRetry={() => {}}
-        canInstall
-        installBlockedReason={null}
-        onInstall={onInstall}
-        iconUrls={{}}
-      />
+      <PluginCatalogDetail {...detailProps(result(), { read: { receipt, value }, onInstall })} />
     );
   });
   await waitForSolid(() => expect(view.container.querySelector("button.primary")).not.toBeNull());

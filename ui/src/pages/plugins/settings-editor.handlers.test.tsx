@@ -14,6 +14,7 @@ import { collectGarbageForTest } from "../../test-helpers/garbage-collection.ts"
 import { createTestGatewayClient } from "../../test-helpers/gateway-client.ts";
 import { cleanupSolid, mountSolid } from "../../test-helpers/mount-solid.ts";
 import { waitForSolid } from "../../test-helpers/solid-settle.ts";
+import { createPluginSettingsDetailProps, createResult } from "./plugins-page.test-support.ts";
 import { PluginSettingsEditor } from "./settings-editor.tsx";
 import type { PluginSettingsEditorModel } from "./settings-model.ts";
 import { PluginSettingsReadStatus } from "./settings-read-status.tsx";
@@ -69,27 +70,16 @@ it("dispatches retained retry controls to the current settings operation", () =>
   const currentWrite = vi.fn();
   let setModel!: Setter<PluginSettingsEditorModel>;
   const { container } = mountSolid(() => {
-    const [model, updateModel] = createSignal<PluginSettingsEditorModel>({
-      pluginId: "fixture",
-      result: null,
-      connected: true,
-      configValue: null,
-      configSchema: null,
-      configHints: {},
-      configUnsupportedPaths: [],
-      canEditConfig: true,
-      configBusy: false,
-      configSchemaLoading: false,
-      configRead: undefined,
-      configSchemaRead: undefined,
-      configError: "Request failed",
-      onConfigPatch: vi.fn(),
-      onConfigRemove: vi.fn(),
-      onConfigReadRetry: initialRead,
-      onConfigWriteRetry: vi.fn(),
-      backHref: "/settings/plugins/fixture",
-      onBack: vi.fn(),
-    });
+    const [model, updateModel] = createSignal<PluginSettingsEditorModel>(
+      createPluginSettingsDetailProps(createResult(), {
+        pluginId: "fixture",
+        result: null,
+        backHref: "/settings/plugins/fixture",
+        configValue: null,
+        configError: "Request failed",
+        onConfigReadRetry: initialRead,
+      }),
+    );
     setModel = updateModel;
     return <PluginSettingsEditor model={model()} />;
   });
