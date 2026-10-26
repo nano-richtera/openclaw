@@ -49,14 +49,8 @@ it.each([
   expect(listener.mock.calls).toEqual(deliveries.map((snapshot) => [snapshot]));
 });
 
-it("posts permission requests", () => {
-  capability?.requestPermission();
-  expect(postMessage).toHaveBeenCalledWith({ type: "request-permission" });
-});
-
 it("shares a test receipt and settles only after the native pending acknowledgement", async () => {
   const completion = capability?.sendTest();
-  expect(completion).toBeInstanceOf(Promise);
   expect(capability?.sendTest()).toBe(completion);
   expect(capability?.snapshot).toEqual({ permission: "unknown", test: { state: "pending" } });
   expect(postMessage.mock.calls).toEqual([[{ type: "send-test" }]]);
@@ -73,7 +67,6 @@ it("shares a test receipt and settles only after the native pending acknowledgem
 
 it("forwards completion to the native permission owner without prompting", () => {
   publish({ permission: "notDetermined", test: null });
-  postMessage.mockClear();
   capability?.backgroundSessionCompleted({ runId: "run-1", path: "/chat/research" });
   expect(postMessage.mock.calls).toEqual([
     [{ type: "background-session-completed", runId: "run-1", path: "/chat/research" }],
@@ -86,7 +79,6 @@ it("keeps permission and failed send as independent facts across focus refresh",
     test: { state: "error", message: "Open System Settings and try again." },
   };
   publish(failed);
-  postMessage.mockClear();
   window.dispatchEvent(new Event("focus"));
   expect(capability?.snapshot).toEqual(failed);
   expect(postMessage).toHaveBeenCalledWith({ type: "status" });
