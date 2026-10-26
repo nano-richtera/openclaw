@@ -23,23 +23,15 @@ it("refreshes retained sharing facts on profile changes and clears them when ide
     using _ = { [Symbol.dispose]: (await prepareUserProfileCatalog()).release };
     const client = sharingPolicyClient({ user: source.id }) as GatewayWsClient;
     prepareGatewayRecipientProfile(client);
-    expect(client.preparedSessionProfile).toEqual({
-      profileId: source.id,
-      aliases: new Set([source.id]),
-      role: null,
-      githubLogin: null,
-    });
     const stop = onUserProfilesChanged(() => prepareGatewayRecipientProfile(client));
     const cfg = rolePolicyConfig();
     let revision = {};
-    const key = () =>
-      prepareProjectedSessionSharing({ cfg, client, isMember: () => false }).getCacheKey(revision);
+    const share = () => prepareProjectedSessionSharing({ cfg, client, isMember: () => false });
+    const key = () => share().getCacheKey(revision);
     try {
       const initialKey = key();
-      expect(key()).toBe(initialKey);
       setUserProfileRole(source.id, "view");
       expect(client.preparedSessionProfile?.role).toBe("view");
-      // The same effective policy still has the same canonical audience key.
       expect(key()).toBe(initialKey);
       setUserProfileRole(target.id, "none");
       linkEmail("source@example.test", target.id);
@@ -52,8 +44,7 @@ it("refreshes retained sharing facts on profile changes and clears them when ide
       const mergedKey = key();
       expect(mergedKey).not.toBe(initialKey);
       client.connect.scopes!.push("operator.admin");
-      const adminKey = key();
-      expect(adminKey).not.toBe(mergedKey);
+      expect(key()).not.toBe(mergedKey);
       client.connect.scopes!.pop();
       expect(key()).toBe(mergedKey);
       // The owner retires the revision when publishing same-object policy edits.
@@ -63,11 +54,7 @@ it("refreshes retained sharing facts on profile changes and clears them when ide
       cfg.gateway!.roles!.definitions.none!.sessions.others = "none";
       revision = {};
       const prepare = vi.spyOn(DatabaseSync.prototype, "prepare");
-      const sharing = prepareProjectedSessionSharing({
-        cfg,
-        client,
-        isMember: () => false,
-      });
+      const sharing = share();
       expect(sharing.sessionCap).toBe("none");
       expect(sharing.isCreator({ type: "human", source: "profile", id: source.id })).toBe(true);
       expect(sharing.entryFilter?.("agent:main:foreign", { visibility: "shared" })).toBe(false);

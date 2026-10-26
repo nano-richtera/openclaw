@@ -2,6 +2,7 @@ import { expectDefined } from "@openclaw/normalization-core/expect";
 import { afterAll, afterEach, beforeAll, beforeEach, expect } from "vitest";
 import type { WebSocket } from "ws";
 import { createDeferred } from "../../test/helpers/promise.js";
+import { waitForAbortSignal } from "../infra/abort-signal.js";
 import {
   getActiveGatewayRootWorkCount,
   getActiveGatewayRootWorkHolders,
@@ -82,14 +83,9 @@ export function installGatewayServerChatTestSuite(
     mockBlockedChatReply: () => {
       const blockedReply = createDeferred();
       mockGetReplyFromConfigOnce(async (_ctx, opts) => {
-        await new Promise<void>((resolve) => {
-          void blockedReply.promise.then(resolve);
-          if (opts?.abortSignal?.aborted) {
-            resolve();
-          } else {
-            opts?.abortSignal?.addEventListener("abort", () => resolve(), { once: true });
-          }
-        });
+        await (opts?.abortSignal
+          ? Promise.race([blockedReply.promise, waitForAbortSignal(opts.abortSignal)])
+          : blockedReply.promise);
       });
       return blockedReply.resolve;
     },
