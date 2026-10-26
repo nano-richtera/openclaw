@@ -12,39 +12,22 @@ function registerLazy(parent: Command, name: string, register: () => void) {
   });
 }
 
-function browserExtension(
-  parentFlags = "-p, --browser-profile <name>",
-  childFlags = "-p, --preview",
-) {
-  const root = new Command().name("openclaw");
-  const browser = root.command("browser").option(parentFlags);
-  const extension = browser.command("extension");
-  const pair = extension.command("pair").option(childFlags);
-  return { browser, extension, pair };
-}
-
-async function expectReparseArgv(params: {
-  parent: Command;
-  action: Command;
-  argv: string[];
-  expected: string[];
-}): Promise<void> {
-  let root = params.parent;
+async function expectReparseArgv(parent: Command, action: Command, args: string, expected = args) {
+  let root = parent;
   while (root.parent) {
     root = root.parent;
   }
-  removeCommandByName(params.parent, params.action.name());
-  registerLazy(params.parent, params.action.name(), () => {
-    params.parent.addCommand(params.action);
+  removeCommandByName(parent, action.name());
+  registerLazy(parent, action.name(), () => {
+    parent.addCommand(action);
   });
   const parse = root.parseAsync.bind(root);
   const parseAsync = vi.spyOn(root, "parseAsync").mockResolvedValue(root);
   parseAsync.mockImplementationOnce(parse);
 
-  await root.parseAsync(params.argv);
-
+  await root.parseAsync(["node", "openclaw", ...args.split(" ")]);
   expect(parseAsync).toHaveBeenCalledTimes(2);
-  expect(parseAsync).toHaveBeenLastCalledWith(params.expected);
+  expect(parseAsync).toHaveBeenLastCalledWith(["node", "openclaw", ...expected.split(" ")]);
 }
 
 describe("lazy command action reparsing", () => {
@@ -66,58 +49,44 @@ describe("lazy command action reparsing", () => {
 
   it("uses root raw args and reparses the root for nested lazy commands", async () => {
     const root = new Command().name("openclaw");
-    const workspaces = root.command("workspaces");
-    const audit = workspaces.command("audit");
+    const audit = root.command("workspaces").command("audit");
     const exportCommand = audit.command("export");
     const auditParseAsync = vi.spyOn(audit, "parseAsync");
 
-    const argv = ["node", "openclaw", "workspaces", "audit", "export", "--since", "1"];
-    await expectReparseArgv({ parent: audit, action: exportCommand, argv, expected: argv });
+    await expectReparseArgv(audit, exportCommand, "workspaces audit export --since 1");
     expect(auditParseAsync).not.toHaveBeenCalled();
   });
 
   it("skips an attached root option value that matches the parent command name", async () => {
     const root = new Command().name("openclaw").option("-p, --profile <name>");
     const browser = root.command("browser").option("--browser-profile <name>");
-    const tabs = browser.command("tabs");
-    await expectReparseArgv({
-      parent: browser,
-      action: tabs,
-      argv: ["node", "openclaw", "-pbrowser", "browser", "tabs", "--browser-profile", "remote"],
-      expected: ["node", "openclaw", "-pbrowser", "browser", "--browser-profile", "remote", "tabs"],
-    });
+    await expectReparseArgv(
+      browser,
+      browser.command("tabs"),
+      "-pbrowser browser tabs --browser-profile remote",
+      "-pbrowser browser --browser-profile remote tabs",
+    );
   });
 
-  it("leaves a child-owned option collision after the child command", async () => {
-    const { browser, extension } = browserExtension("--json", "--json");
+  it.each([
+    ["--json", { json: true }, []],
+    ["-pfoo", { preview: true }, ["-foo"]],
+    ["-pr remote", { preview: true, retry: "remote" }, []],
+  ] as const)("preserves child-owned options %s", async (args, options, unknown) => {
+    const json = args === "--json";
+    const browser = new Command()
+      .name("openclaw")
+      .command("browser")
+      .option(json ? "--json" : "-p, --browser-profile <name>");
+    const extension = browser.command("extension");
     extension.command("path");
-    const argv = ["node", "openclaw", "browser", "extension", "pair", "--json"];
-    await expectReparseArgv({ parent: browser, action: extension, argv, expected: argv });
-  });
-
-  it("preserves an unknown suffix after a child-owned boolean short flag", async () => {
-    const { browser, extension, pair } = browserExtension();
-
-    const parsed = pair.parseOptions(["-pfoo"]);
-
-    expect(parsed.unknown).toEqual(["-foo"]);
-    expect(pair.opts()).toEqual({ preview: true });
-
-    const argv = ["node", "openclaw", "browser", "extension", "pair", "-pfoo"];
-    await expectReparseArgv({ parent: browser, action: extension, argv, expected: argv });
-  });
-
-  it("preserves child-owned short groups with an optional separate value", async () => {
-    const { browser, extension, pair } = browserExtension();
-    pair.option("-r, --retry [value]");
-
-    const parsed = pair.parseOptions(["-pr", "remote"]);
-
-    expect(parsed.unknown).toEqual([]);
-    expect(pair.opts()).toEqual({ preview: true, retry: "remote" });
-
-    const argv = ["node", "openclaw", "browser", "extension", "pair", "-pr", "remote"];
-    await expectReparseArgv({ parent: browser, action: extension, argv, expected: argv });
+    const pair = extension.command("pair").option(json ? "--json" : "-p, --preview");
+    if (args === "-pr remote") {
+      pair.option("-r, --retry [value]");
+    }
+    expect(pair.parseOptions(args.split(" ")).unknown).toEqual(unknown);
+    expect(pair.opts()).toEqual(options);
+    await expectReparseArgv(browser, extension, `browser extension pair ${args}`);
   });
 
   it("rejects a missing parent option value before loading the lazy command", async () => {
