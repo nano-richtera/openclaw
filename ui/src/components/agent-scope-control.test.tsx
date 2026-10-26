@@ -53,20 +53,26 @@ it("renders only when multiple configured agents are selectable", () => {
   expect(container.querySelector(".agent-scope-control")).not.toBeNull();
 });
 
-it("includes historical agent ids and maps All agents back to null", async () => {
-  const setScope = vi.fn();
+it.each([true, false])("routes selection with allowAll=%s", async (allowAll) => {
+  const selection = createSelection();
   const select = await mountScope({
     agents: [{ ...configuredAgents[0]!, identity: { emoji: "🦞" } }, configuredAgents[1]!],
-    additionalAgentIds: ["retired"],
-    selection: createSelection(setScope),
+    additionalAgentIds: allowAll ? ["retired"] : undefined,
+    selection,
+    allowAll,
+    selectedId: allowAll ? undefined : "writer",
   });
-  expect(select).not.toBeNull();
-  expect(values(select)).toEqual(["", "main", "retired", "writer"]);
-  expect(select?.querySelector(".identity-avatar__text")?.getAttribute("data-avatar")).toBe("🦞");
-
-  select?.onSelect("retired");
-  select?.onSelect("");
-  expect(setScope.mock.calls).toEqual([["retired"], [null]]);
+  expect(values(select)).toEqual(allowAll ? ["", "main", "retired", "writer"] : ["main", "writer"]);
+  if (allowAll) {
+    expect(select?.querySelector(".identity-avatar__text")?.getAttribute("data-avatar")).toBe("🦞");
+    select?.onSelect("retired");
+    select?.onSelect("");
+    expect(vi.mocked(selection.setScope).mock.calls).toEqual([["retired"], [null]]);
+  } else {
+    expect(select?.value).toBe("writer");
+    select?.onSelect("main");
+    expect(selection.set).toHaveBeenCalledWith("main");
+  }
 });
 
 it.each([true, false])("excludes system agents with allowAll=%s", async (allowAll) => {
@@ -78,17 +84,4 @@ it.each([true, false])("excludes system agents with allowAll=%s", async (allowAl
   });
   expect(select?.value).toBe(allowAll ? "" : "main");
   expect(values(select)).toEqual(allowAll ? ["", "main", "retired", "writer"] : ["main", "writer"]);
-});
-
-it("supports a concrete-agent selector without an all-agents option", async () => {
-  const set = vi.fn();
-  const select = await mountScope({
-    selection: createSelection(vi.fn(), set),
-    allowAll: false,
-    selectedId: "writer",
-  });
-  expect(select?.value).toBe("writer");
-  expect(values(select)).toEqual(["main", "writer"]);
-  select?.onSelect("main");
-  expect(set).toHaveBeenCalledWith("main");
 });
