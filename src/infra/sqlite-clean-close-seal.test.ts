@@ -37,14 +37,6 @@ function fixture() {
   return { pathname, read, write, reject };
 }
 
-it("persists validated facts until the first write invalidates them", () => {
-  const { pathname, read, reject } = fixture();
-  expect(read()).toEqual(proof);
-  invalidate(pathname);
-  reject("no-proof");
-  expect(() => invalidate(pathname)).not.toThrow();
-});
-
 function editSeal(pathname: string, edit: (contents: string) => string) {
   const seal = `${pathname}.seal`;
   fs.writeFileSync(seal, edit(fs.readFileSync(seal, "utf8")));
@@ -84,9 +76,8 @@ it.each(["-wal", "-journal"])("requires absent or empty %s files", (suffix) => {
   expect(fs.existsSync(`${pathname}.seal`)).toBe(false);
 });
 
-it("returns the identity for admission and requires periodic full verification", () => {
+it("requires periodic full verification", () => {
   const { read, reject } = fixture();
-  expect(read()?.schemaIdentity).toBe("state:20");
   vi.mocked(Date.now).mockReturnValue(verifiedAt + 7 * 24 * 60 * 60 * 1_000);
   expect(read()).toEqual(proof);
   vi.mocked(Date.now).mockReturnValue(verifiedAt + 7 * 24 * 60 * 60 * 1_000 + 1);
@@ -96,8 +87,10 @@ it("returns the identity for admission and requires periodic full verification",
 });
 
 it("treats publication failure as a miss but refuses failed write invalidation", () => {
-  const { pathname, write, read } = fixture();
-  fs.unlinkSync(`${pathname}.seal`);
+  const { pathname, write, read, reject } = fixture();
+  invalidate(pathname);
+  reject("no-proof");
+  invalidate(pathname);
   fs.mkdirSync(`${pathname}.seal`);
   expect(write()).toBe(false);
   expect(read()).toBeUndefined();

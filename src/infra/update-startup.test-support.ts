@@ -1,18 +1,7 @@
 import { vi } from "vitest";
 import type * as Handoff from "./update-managed-service-handoff.js";
 
-const {
-  cancelManagedServiceUpdateHandoffMock,
-  checkTelemetryUpdateMock,
-  detectRespawnSupervisorMock,
-  getRuntimeConfigMock,
-  runUpdateFailureTriageMock,
-  refreshRemoteModelCatalogMock,
-  scheduleGatewayRestartMock,
-  startManagedServiceUpdateHandoffMock,
-  transferManagedServiceUpdateHandoffMock,
-  versionMock,
-} = vi.hoisted(() => ({
+const mocks = vi.hoisted(() => ({
   cancelManagedServiceUpdateHandoffMock: vi.fn<typeof Handoff.cancelManagedServiceUpdateHandoff>(
     async () => "restored-in-process",
   ),
@@ -37,13 +26,13 @@ const {
 }));
 
 // mock-isolation: Use fixture configuration without reading operator state.
-vi.mock("../config/config.js", () => ({ getRuntimeConfig: getRuntimeConfigMock }));
+vi.mock("../config/config.js", () => ({ getRuntimeConfig: mocks.getRuntimeConfigMock }));
 
-vi.mock("./update-triage.js", () => ({ runUpdateFailureTriage: runUpdateFailureTriageMock }));
+vi.mock("./update-triage.js", () => ({ runUpdateFailureTriage: mocks.runUpdateFailureTriageMock }));
 
 vi.mock("../model-catalog/remote-refresh.js", async (original) => ({
   ...(await original<typeof import("../model-catalog/remote-refresh.js")>()),
-  refreshRemoteModelCatalog: refreshRemoteModelCatalogMock,
+  refreshRemoteModelCatalog: mocks.refreshRemoteModelCatalogMock,
 }));
 
 vi.mock("./openclaw-root.js", async (original) => ({
@@ -53,29 +42,26 @@ vi.mock("./openclaw-root.js", async (original) => ({
 
 vi.mock("./restart.js", async () => ({
   ...(await vi.importActual<typeof import("./restart.js")>("./restart.js")),
-  scheduleGatewayRestart: scheduleGatewayRestartMock,
+  scheduleGatewayRestart: mocks.scheduleGatewayRestartMock,
 }));
 
 vi.mock("./supervisor-markers.js", async (original) => ({
   ...(await original<typeof import("./supervisor-markers.js")>()),
-  detectRespawnSupervisor: detectRespawnSupervisorMock,
+  detectRespawnSupervisor: mocks.detectRespawnSupervisorMock,
 }));
 
 // mock-isolation: Observe startup telemetry without making network requests.
-vi.mock("./telemetry.js", () => ({ checkTelemetryUpdate: checkTelemetryUpdateMock }));
+vi.mock("./telemetry.js", () => ({ checkTelemetryUpdate: mocks.checkTelemetryUpdateMock }));
 
-vi.mock("./update-check.js", async (original) => {
-  const actual = await original<typeof import("./update-check.js")>();
-  return {
-    ...actual,
-    checkUpdateStatus: vi.fn(),
-    resolveNpmChannelTag: vi.fn(),
-  };
-});
+vi.mock("./update-check.js", async (original) => ({
+  ...(await original<typeof import("./update-check.js")>()),
+  checkUpdateStatus: vi.fn(),
+  resolveNpmChannelTag: vi.fn(),
+}));
 
 vi.mock("../version.js", () => ({
   get VERSION() {
-    return versionMock.value;
+    return mocks.versionMock.value;
   },
 }));
 
@@ -86,12 +72,12 @@ vi.mock("./update-managed-service-handoff.js", async () => ({
   ...(await vi.importActual<typeof import("./update-managed-service-handoff.js")>(
     "./update-managed-service-handoff.js",
   )),
-  cancelManagedServiceUpdateHandoff: cancelManagedServiceUpdateHandoffMock,
-  startManagedServiceUpdateHandoff: startManagedServiceUpdateHandoffMock,
-  transferManagedServiceUpdateHandoff: transferManagedServiceUpdateHandoffMock,
+  cancelManagedServiceUpdateHandoff: mocks.cancelManagedServiceUpdateHandoffMock,
+  startManagedServiceUpdateHandoff: mocks.startManagedServiceUpdateHandoffMock,
+  transferManagedServiceUpdateHandoff: mocks.transferManagedServiceUpdateHandoffMock,
 }));
 
-export {
+export const {
   cancelManagedServiceUpdateHandoffMock,
   checkTelemetryUpdateMock,
   detectRespawnSupervisorMock,
@@ -102,4 +88,4 @@ export {
   startManagedServiceUpdateHandoffMock,
   transferManagedServiceUpdateHandoffMock,
   versionMock,
-};
+} = mocks;

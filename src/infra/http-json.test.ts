@@ -51,21 +51,17 @@ it.each<Writer>(["plain", "private", "framed", "bare", "committed"])(
   "preserves %s JSON bytes, cache policy and HEAD framing",
   async (writer) => {
     for (const method of ["GET", "HEAD"]) {
-      const response = await new Promise<{
-        res: IncomingMessage;
-        body: Buffer;
-      }>((resolve, reject) => {
-        const req = request(
+      const res = await new Promise<IncomingMessage>((resolve, reject) => {
+        request(
           `http://127.0.0.1:${listener.claim.port}/${writer}`,
           { method, agent: false },
-          (res) => {
-            buffer(res).then((body) => resolve({ res, body }), reject);
-          },
-        );
-        req.once("error", reject);
-        req.end();
+          resolve,
+        )
+          .once("error", reject)
+          .end();
       });
-      expect(response.res).toMatchObject({
+      const body = (await buffer(res)).toString("utf8");
+      expect(res).toMatchObject({
         statusCode: 202,
         headers: {
           "content-type": contentType(writer),
@@ -73,13 +69,13 @@ it.each<Writer>(["plain", "private", "framed", "bare", "committed"])(
           "x-content-type-options": "nosniff",
         },
       });
-      expect(response.res.headers["transfer-encoding"]).toBe(
+      expect(res.headers["transfer-encoding"]).toBe(
         writer === "committed" && method === "GET" ? "chunked" : undefined,
       );
-      expect(response.res.headers["content-length"]).toBe(
+      expect(res.headers["content-length"]).toBe(
         (method === "GET" && writer !== "committed") || writer === "framed" ? "21" : undefined,
       );
-      expect(response.body.toString("utf8")).toBe(method === "GET" ? '{"text":"🦞 café"}' : "");
+      expect(body).toBe(method === "GET" ? '{"text":"🦞 café"}' : "");
     }
   },
 );
@@ -88,7 +84,6 @@ it.each<Writer>(["plain", "private", "framed", "bare", "committed"])(
   "preserves %s header preparation when serialization fails",
   (writer) => {
     const res = new ServerResponse(new IncomingMessage(new Socket()));
-    res.setHeader("X-Content-Type-Options", "nosniff");
     expect(() => writers[writer](res, 202, { value: 1n })).toThrow(TypeError);
     expect(res.headersSent).toBe(writer === "committed");
     expect(res.statusCode).toBe(writer === "framed" ? 200 : 202);
