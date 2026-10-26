@@ -71,10 +71,10 @@ export function AgentPicker(props: PickerProps & Styled) {
 }
 
 export function AgentAvatar(props: AvatarProps) {
-  const value = createMemo(() => ({ agentId: props.agentId, label: props.label }), {
+  const readAvatar = createMemo(() => ({ agentId: props.agentId, label: props.label }), {
     equals: (previous, next) => previous.agentId === next.agentId && previous.label === next.label,
   });
-  const mount = hostMount(value, (container, value) =>
+  const mount = hostMount(readAvatar, (container, value) =>
     workboardHost().components.mountAgentAvatar(container, value),
   );
   return <span aria-hidden="true" ref={mount} />;
