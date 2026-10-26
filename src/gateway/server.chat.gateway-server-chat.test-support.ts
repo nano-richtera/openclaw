@@ -69,8 +69,6 @@ export function installGatewayServerChatTestSuite(
   };
   return {
     abortChatRun: (runId: string) => request("chat.abort", { sessionKey: "main", runId }),
-    expectAgentWaitStartedAt: (res: Awaited<ReturnType<typeof rpcReq>>, startedAt: number) =>
-      expect(res).toMatchObject({ ok: true, payload: { status: "ok", startedAt } }),
     expectAgentWaitTimeout: (res: Awaited<ReturnType<typeof rpcReq>>, error?: string) => {
       expect(res).toMatchObject({ ok: true, payload: { status: "timeout" } });
       if (error !== undefined) {
