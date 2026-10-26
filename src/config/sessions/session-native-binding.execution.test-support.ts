@@ -13,7 +13,6 @@ import type {
 
 type ExecutionModule = typeof import("../../state/openclaw-agent-execution.js");
 type Decorate = (worker: AgentDatabaseExecutionScope) => AgentDatabaseExecutionScope;
-type Request = admission.SqliteWorkerAdmissionRequest;
 
 export async function withHostDataSql<T>(
   run: (sql: ReturnType<typeof observeHostDataSql>) => Promise<T>,
@@ -24,14 +23,17 @@ export async function withHostDataSql<T>(
   return await run(sql);
 }
 
-export function publication(request: Request) {
+export function publication(request: admission.SqliteWorkerAdmissionRequest) {
   const facts = isRecord(request.facts) ? request.facts.publication : undefined;
   return isRecord(facts) ? facts : undefined;
 }
 
 export function observeNativeGrants(
   module: typeof admission,
-  observe: (request: Request, facts: Record<string, unknown>) => void,
+  observe: (
+    request: admission.SqliteWorkerAdmissionRequest,
+    facts: Record<string, unknown>,
+  ) => void,
 ) {
   return probe.admission(module, (request, grant, admit) => {
     const facts = publication(request);
@@ -54,8 +56,14 @@ export function observeNativeCommit(module: typeof admission, observe = () => {}
 
 export function captureCommandWorker(type: string) {
   let terminate: (() => Promise<number>) | undefined;
-  // oxlint-disable-next-line typescript/unbound-method -- Forwarded with the intercepted Worker receiver below.
-  const posted = Worker.prototype.postMessage;
+  // Preserve the original receiver and target only the worker carrying this command.
+  const workerPrototype: {
+    postMessage: (
+      this: Worker,
+      ...args: Parameters<Worker["postMessage"]>
+    ) => ReturnType<Worker["postMessage"]>;
+  } = Worker.prototype;
+  const posted = workerPrototype.postMessage;
   vi.spyOn(Worker.prototype, "postMessage").mockImplementation(function (this: Worker, ...args) {
     const message: unknown = args[0];
     if (isRecord(message) && message.type === "execute" && message.input instanceof Uint8Array) {

@@ -12,13 +12,14 @@ type NativeNotificationsMessage = {
 
 let capability: NativeNotificationsCapability | null = null;
 let postMessage: ReturnType<typeof vi.fn<(message: NativeNotificationsMessage) => void>>;
-let listener: ReturnType<typeof vi.fn>;
+type NotificationListener = Parameters<NativeNotificationsCapability["subscribe"]>[0];
+let listener: ReturnType<typeof vi.fn<NotificationListener>>;
 
 beforeEach(() => {
   postMessage = vi.fn<(message: NativeNotificationsMessage) => void>();
   vi.stubGlobal("webkit", { messageHandlers: { openclawNotifications: { postMessage } } });
   capability = createNativeNotificationsCapability();
-  listener = vi.fn();
+  listener = vi.fn<NotificationListener>();
   capability?.subscribe(listener);
   postMessage.mockClear();
 });

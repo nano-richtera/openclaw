@@ -65,7 +65,8 @@ export function registerCanaryMigrationPolicyTests({
       );
       if (migrationPolicy === "startup-only") {
         expect(inputAtBoot?.meta?.lastTouchedVersion).toBeUndefined();
-        expect(inputAtBoot?.agents).toEqual(original.agents);
+        expect(inputAtBoot?.agents?.list?.map(({ id }) => id)).toEqual(["main"]);
+        expect(inputAtBoot?.agents?.entries).toBeUndefined();
         expect(result.steps.some(({ name }) => name === "candidate-doctor")).toBe(false);
         expect(result.steps).toContainEqual(step("candidate-recovery", 0));
       } else {

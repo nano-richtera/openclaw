@@ -4,6 +4,7 @@ import { resolveRuntimeWorkerUrl } from "../infra/runtime-worker-url.js";
 import { workerTaskPoolEntrypoints } from "../infra/worker-task-pool-runtime.test-support.js";
 import { WorkerTaskError, WorkerTaskPool } from "../infra/worker-task-pool.js";
 import { createDeferredCore } from "../shared/deferred.js";
+import { resolveModelFallbackError } from "./failover-error.js";
 import { runWithModelFallback } from "./model-fallback-runner.js";
 
 const workerUrl = resolveRuntimeWorkerUrl(workerTaskPoolEntrypoints.worker);

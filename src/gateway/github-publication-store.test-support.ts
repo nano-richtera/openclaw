@@ -55,6 +55,8 @@ export function createGitHubPublicationExecutionStoreFixture(instanceId: string)
       operation(createExecutionStore(database, instanceId)),
     );
   return {
+    bindWorkspaceSnapshot: (...args: Parameters<ExecutionStore["bindWorkspaceSnapshot"]>) =>
+      write((store) => store.bindWorkspaceSnapshot(...args)),
     updatePublishingFacts: (...args: Parameters<ExecutionStore["updatePublishingFacts"]>) =>
       write((store) => store.updatePublishingFacts(...args)),
     complete: (...args: Parameters<ExecutionStore["complete"]>) =>
