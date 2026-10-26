@@ -7,10 +7,10 @@ import { mountSolid } from "../test-helpers/mount-solid.ts";
 import { AgentScopeControl } from "./agent-scope-control.tsx";
 import type { AgentSelectElement } from "./agent-select.tsx";
 
-function createSelection(setScope: (agentId: string | null) => void) {
+function createSelection(setScope = vi.fn(), set = vi.fn()) {
   return {
     state: { selectedId: "main", scopeId: null },
-    set: vi.fn(),
+    set,
     setScope,
     subscribe: vi.fn(),
   } as unknown as AgentSelectionCapability;
@@ -18,11 +18,7 @@ function createSelection(setScope: (agentId: string | null) => void) {
 
 async function mountScope(overrides: Partial<Parameters<typeof AgentScopeControl>[0]> = {}) {
   const { container } = mountSolid(() => (
-    <AgentScopeControl
-      agents={configuredAgents}
-      selection={createSelection(vi.fn())}
-      {...overrides}
-    />
+    <AgentScopeControl agents={configuredAgents} selection={createSelection()} {...overrides} />
   ));
   flush();
   const select = container.querySelector<AgentSelectElement>("openclaw-agent-select");
@@ -43,12 +39,12 @@ const values = (select: AgentSelectElement | null) => select?.options.map((optio
 it("renders only when multiple configured agents are selectable", () => {
   const [agents, setAgents] = createSignal<Array<{ id: string; name: string }>>([]);
   const { container } = mountSolid(() => (
-    <AgentScopeControl agents={agents()} selection={createSelection(vi.fn())} />
+    <AgentScopeControl agents={agents()} selection={createSelection()} />
   ));
   flush();
   expect(container.querySelector(".agent-scope-control")).toBeNull();
 
-  setAgents([{ id: "main", name: "Main agent" }]);
+  setAgents([configuredAgents[0]!]);
   flush();
   expect(container.querySelector(".agent-scope-control")).toBeNull();
 
@@ -70,8 +66,7 @@ it("includes historical agent ids and maps All agents back to null", async () =>
 
   select?.onSelect("retired");
   select?.onSelect("");
-  expect(setScope).toHaveBeenNthCalledWith(1, "retired");
-  expect(setScope).toHaveBeenNthCalledWith(2, null);
+  expect(setScope.mock.calls).toEqual([["retired"], [null]]);
 });
 
 it.each([true, false])("excludes system agents with allowAll=%s", async (allowAll) => {
@@ -87,11 +82,8 @@ it.each([true, false])("excludes system agents with allowAll=%s", async (allowAl
 
 it("supports a concrete-agent selector without an all-agents option", async () => {
   const set = vi.fn();
-  const selection = createSelection(vi.fn());
-  selection.set = set;
-
   const select = await mountScope({
-    selection,
+    selection: createSelection(vi.fn(), set),
     allowAll: false,
     selectedId: "writer",
   });
