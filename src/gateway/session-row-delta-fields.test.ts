@@ -5,6 +5,13 @@ import {
 } from "./session-row-delta-fields.js";
 
 describe("session row field deltas", () => {
+  const compare = (previous: Record<string, unknown>, current: Record<string, unknown>) =>
+    createSessionRowDeltaDiffer()(
+      prepareSessionRowDeltaFields(previous),
+      prepareSessionRowDeltaFields(current),
+      current,
+    );
+
   it("preserves JSON values and removes fields that disappear from the wire", () => {
     const previous = {
       key: "agent:main:child",
@@ -24,12 +31,7 @@ describe("session row field deltas", () => {
       runs: [],
       added: "new",
     };
-    const delta = createSessionRowDeltaDiffer()(
-      prepareSessionRowDeltaFields(previous),
-      prepareSessionRowDeltaFields(current),
-      current,
-    );
-    expect(delta).toEqual({
+    expect(compare(previous, current)).toEqual({
       set: { nil: null, enabled: false, runtimeMs: 0, runs: [], added: "new" },
       remove: ["removed", "nowUndefined"],
     });
@@ -54,13 +56,10 @@ describe("session row field deltas", () => {
       count: "1",
       enabled: "true",
     };
-    expect(
-      createSessionRowDeltaDiffer()(
-        prepareSessionRowDeltaFields(previous),
-        prepareSessionRowDeltaFields(current),
-        current,
-      ),
-    ).toEqual({ set: { count: "1", enabled: "true" }, remove: [] });
+    expect(compare(previous, current)).toEqual({
+      set: { count: "1", enabled: "true" },
+      remove: [],
+    });
   });
 
   it("compares nested JSON semantically and replaces a changed nested field whole", () => {
@@ -72,13 +71,10 @@ describe("session row field deltas", () => {
       activity: { a: 1, b: [undefined, { done: false, ignored: undefined }] },
       usage: { input: 4, output: 5 },
     };
-    expect(
-      createSessionRowDeltaDiffer()(
-        prepareSessionRowDeltaFields(previous),
-        prepareSessionRowDeltaFields(current),
-        current,
-      ),
-    ).toEqual({ set: { usage: { input: 4, output: 5 } }, remove: [] });
+    expect(compare(previous, current)).toEqual({
+      set: { usage: { input: 4, output: 5 } },
+      remove: [],
+    });
   });
 
   it("recomputes mutable children shared by distinct shallow-frozen row snapshots", () => {

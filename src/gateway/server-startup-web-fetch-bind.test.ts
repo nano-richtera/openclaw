@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { acquireTestPortBlock } from "../test-utils/port-claims.js";
 import { installGatewayTestHooks, startTestGatewayServer } from "./test-helpers.js";
 
@@ -57,11 +57,6 @@ vi.mock("../plugins/web-provider-public-artifacts.js", async () => {
 });
 
 installGatewayTestHooks({ scope: "suite" });
-
-afterEach(() => {
-  webFetchProviderDiscovery.bundled.mockClear();
-  webFetchProviderDiscovery.plugin.mockClear();
-});
 
 describe("gateway startup web fetch config", () => {
   let port: number;
