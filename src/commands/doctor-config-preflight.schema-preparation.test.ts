@@ -80,23 +80,9 @@ it.each([
       await operation;
       const { db } = openOpenClawStateDatabase();
       expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
-      expect(
-        db
-          .prepare("SELECT id FROM migration_runs WHERE id = ? AND status = 'pending'")
-          .get("deferred-plugin-migration:missing-preparation-fixture"),
-      ).toEqual({ id: "deferred-plugin-migration:missing-preparation-fixture" });
     }
     expect(injected).toBe(true);
-    if (!refuses) {
-      return;
-    }
     using inspected = new DatabaseSync(databasePath, { readOnly: true });
-    expect(inspected.prepare("PRAGMA user_version").get()?.user_version).toBe(
-      OPENCLAW_STATE_SCHEMA_VERSION,
-    );
-    expect(
-      inspected.prepare("SELECT workspace_key FROM workspace_generated_bootstrap_hashes").all(),
-    ).toEqual([{ workspace_key: "missing-workspace" }]);
     expect(
       inspected
         .prepare(
@@ -104,5 +90,13 @@ it.each([
         )
         .all(),
     ).toEqual([{ id: "deferred-plugin-migration:missing-preparation-fixture" }]);
+    if (refuses) {
+      expect(inspected.prepare("PRAGMA user_version").get()?.user_version).toBe(
+        OPENCLAW_STATE_SCHEMA_VERSION,
+      );
+      expect(
+        inspected.prepare("SELECT workspace_key FROM workspace_generated_bootstrap_hashes").all(),
+      ).toEqual([{ workspace_key: "missing-workspace" }]);
+    }
   });
 });
