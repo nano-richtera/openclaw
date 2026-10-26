@@ -33,10 +33,10 @@ export function registerCanaryMigrationPolicyTests({
       const spawnNormally = mocks.spawn.getMockImplementation()!;
       mocks.spawn.mockImplementation((command, args: string[], options) => {
         const configPath = options.env.OPENCLAW_CONFIG_PATH;
+        const readConfig = (): OpenClawConfigWithLegacyRoster =>
+          JSON.parse(readFileSync(configPath, "utf8"));
         const migrate = () => {
-          const config: OpenClawConfigWithLegacyRoster = JSON.parse(
-            readFileSync(configPath, "utf8"),
-          );
+          const config = readConfig();
           config.meta = { ...config.meta, lastTouchedVersion: "2026.9.1" };
           writeFileSync(configPath, JSON.stringify(config));
         };
@@ -45,7 +45,7 @@ export function registerCanaryMigrationPolicyTests({
         }
         const child: FakeChild = spawnNormally(command, args, options);
         if (args.includes("gateway")) {
-          inputAtBoot = JSON.parse(readFileSync(configPath, "utf8"));
+          inputAtBoot = readConfig();
           if (startupMigration) {
             migrate();
           } else if (!inputAtBoot?.meta?.lastTouchedVersion) {
@@ -65,8 +65,7 @@ export function registerCanaryMigrationPolicyTests({
       );
       if (migrationPolicy === "startup-only") {
         expect(inputAtBoot?.meta?.lastTouchedVersion).toBeUndefined();
-        expect(inputAtBoot?.agents?.list?.map(({ id }) => id)).toEqual(["main"]);
-        expect(inputAtBoot?.agents?.entries).toBeUndefined();
+        expect(inputAtBoot?.agents).toEqual(original.agents);
         expect(result.steps.some(({ name }) => name === "candidate-doctor")).toBe(false);
         expect(result.steps).toContainEqual(step("candidate-recovery", 0));
       } else {

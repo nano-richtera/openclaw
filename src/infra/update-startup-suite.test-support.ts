@@ -50,24 +50,15 @@ export function idleActiveWorkInspectors(): GatewayActiveWorkInspectors {
   };
 }
 
-export function startedHandoff(
-  overrides: Partial<{
-    pid: number;
-    command: string;
-    logPath: string;
-    handoffId: string;
-    installRoot: string;
-  }> = {},
-) {
-  return {
-    status: "started" as const,
-    pid: 12345,
-    command: "openclaw update --yes --channel beta",
-    logPath: "/tmp/openclaw-handoff.log",
-    handoffId: "auto-handoff-id",
-    installRoot: "/opt/openclaw",
-    ...overrides,
-  };
+const handoff = {
+  pid: 12345,
+  command: "openclaw update --yes --channel beta",
+  logPath: "/tmp/openclaw-handoff.log",
+  handoffId: "auto-handoff-id",
+  installRoot: "/opt/openclaw",
+};
+export function startedHandoff(overrides: Partial<typeof handoff> = {}) {
+  return { status: "started" as const, ...handoff, ...overrides };
 }
 
 export function updateResult(overrides: Partial<UpdateRunResult> = {}): UpdateRunResult {

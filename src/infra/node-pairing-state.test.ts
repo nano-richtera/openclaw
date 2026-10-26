@@ -43,66 +43,50 @@ function authenticateNode(node: PairedDevice) {
   });
 }
 
-function returnDevices(...devices: PairedDevice[]) {
-  for (const device of devices) {
-    mocks.getPairedDevice.mockResolvedValueOnce(device);
-  }
-}
-
-beforeEach(() => {
-  mocks.getPairedDevice.mockReset();
-});
+beforeEach(() => mocks.getPairedDevice.mockReset());
 
 it("binds connected sessions to the public key and node token used at authentication", async () => {
   const original = pairedNode();
-  returnDevices(
-    original,
-    { ...original, publicKey: "fake" },
-    pairedNode({}, { token: "decoy-token" }),
-  );
-
+  mocks.getPairedDevice.mockResolvedValueOnce(original);
   await expect(authenticateNode(original)).resolves.toMatchObject({
     generation: { nodeId: original.deviceId },
     approvedSurface: surface,
   });
-  expect(mocks.getPairedDevice).toHaveBeenCalledTimes(1);
-  await expect(authenticateNode(original)).resolves.toBeNull();
-  await expect(authenticateNode(original)).resolves.toBeNull();
+  for (const changed of [
+    { ...original, publicKey: "fake" },
+    pairedNode({}, { token: "decoy-token" }),
+  ]) {
+    mocks.getPairedDevice.mockResolvedValueOnce(changed);
+    await expect(authenticateNode(original)).resolves.toBeNull();
+  }
 });
 
 it("keeps pairing identity stable when the pending surface is approved", async () => {
   const pending = pairedNode({ nodeSurface: undefined });
-  const approved = pairedNode();
-  returnDevices(pending, approved);
+  mocks.getPairedDevice.mockResolvedValueOnce(pending).mockResolvedValueOnce(pairedNode());
   const pendingState = await authenticateNode(pending);
   const approvedState = await authenticateNode(pending);
 
   expect(pendingState?.generation).toBeNull();
-  expect(pendingState?.approvedSurface).toEqual({
-    caps: [],
-    commands: [],
-    permissions: undefined,
-  });
+  expect(pendingState?.approvedSurface).toEqual({ caps: [], commands: [], permissions: undefined });
   expect(approvedState?.generation).not.toBeNull();
   expect(approvedState?.identity.key).toBe(pendingState?.identity.key);
 });
 
 it("rejects admission without an active node token or approved node surface", async () => {
-  returnDevices(
+  for (const device of [
     pairedNode({ tokens: undefined }),
     pairedNode({}, { revokedAtMs: 501 }),
     pairedNode({ nodeSurface: undefined }),
-  );
-
-  await expect(captureNodePairingGeneration("node-1")).resolves.toBeNull();
-  await expect(captureNodePairingGeneration("node-1")).resolves.toBeNull();
-  await expect(captureNodePairingGeneration("node-1")).resolves.toBeNull();
+  ]) {
+    mocks.getPairedDevice.mockResolvedValueOnce(device);
+    await expect(captureNodePairingGeneration("node-1")).resolves.toBeNull();
+  }
 });
 
 it("rejects admission without a durable approved node role", async () => {
   mocks.getPairedDevice.mockResolvedValueOnce(
     pairedNode({ role: "operator", roles: ["operator"] }),
   );
-
   await expect(captureNodePairingGeneration("node-1")).resolves.toBeNull();
 });
