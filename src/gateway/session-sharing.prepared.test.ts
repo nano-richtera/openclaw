@@ -8,7 +8,11 @@ import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { prepareGatewayRecipientProfile } from "./expected-profile.js";
 import type { GatewayWsClient } from "./server/ws-types.js";
 import { prepareProjectedSessionSharing, prepareSessionSharing } from "./session-sharing.js";
-import { sharingPolicyClient, rolePolicyConfig } from "./session-sharing.test-utils.js";
+import {
+  sharingPolicyClient,
+  sharingPolicyTarget,
+  rolePolicyConfig,
+} from "./session-sharing.test-utils.js";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -83,19 +87,8 @@ it("uses fresh prepared caller, alias, role, and membership facts without queryi
   await withOpenClawTestState({ scenario: "minimal", prepareProfileCatalog: true }, async () => {
     const owner = ensureProfileForEmail("owner@example.test");
     const oldOwner = ensureProfileForEmail("old-owner@example.test");
-    const target = {
-      agentId: "main",
-      canonicalKey: "agent:main:shared",
-      storeKey: "agent:main:shared",
-      storeKeys: ["agent:main:shared"],
-      storePath: "/unused/prepared-sharing",
-      entry: {
-        sessionId: "shared-session",
-        updatedAt: 1,
-        visibility: "shared" as const,
-        createdActor: { type: "human" as const, source: "profile" as const, id: oldOwner.id },
-      },
-    };
+    const target = sharingPolicyTarget({ type: "human", id: oldOwner.id });
+    target.entry.visibility = "shared";
     const client = sharingPolicyClient({ user: owner.id });
     const cfg = rolePolicyConfig();
     const prepare = vi.spyOn(DatabaseSync.prototype, "prepare");
