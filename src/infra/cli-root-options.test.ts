@@ -10,6 +10,7 @@ import {
 } from "./cli-root-options.js";
 
 const cliArgs = (...args: string[]) => ["node", "openclaw", ...args];
+const runOptions = (...args: string[]) => resolveGatewayRunPreBootstrapOptions(cliArgs(...args));
 const positionals = (
   args: string[],
   options: Parameters<typeof getCommandPositionalsWithRootOptions>[1],
@@ -53,12 +54,11 @@ it("keeps literal root invocations out of conservative fast routes", () => {
 });
 
 it("resolves destructive flags after root options without consuming option values", () => {
-  expect(
-    resolveGatewayRunPreBootstrapOptions(
-      cliArgs("--log-level", "debug", "gateway", "run", "--force", "--reset"),
-    ),
-  ).toEqual({ force: true, reset: true });
-  expect(resolveGatewayRunPreBootstrapOptions(cliArgs("gateway", "--token", "--force"))).toEqual({
+  expect(runOptions("--log-level", "debug", "gateway", "run", "--force", "--reset")).toEqual({
+    force: true,
+    reset: true,
+  });
+  expect(runOptions("gateway", "--token", "--force")).toEqual({
     force: false,
     reset: false,
   });
@@ -71,7 +71,7 @@ it.each([
 ])("preserves literal commands without destructive flags: $args", ({ args, commandPath }) => {
   const argv = cliArgs(...args);
   expect(resolveGatewayCommandPath(argv)).toEqual(commandPath);
-  const options = resolveGatewayRunPreBootstrapOptions(argv);
+  const options = runOptions(...args);
   expect(options?.force).not.toBe(true);
   expect(options?.reset).not.toBe(true);
 });

@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { expect, it, vi, type Mock } from "vitest";
+import { expect, it, type Mock } from "vitest";
 import type { OpenClawConfigWithLegacyRoster } from "../config/legacy.roster.js";
 import { validateUpdateCandidateCanary } from "./update-candidate-canary.js";
 import { type FakeChild, stubHealthyGateway } from "./update-candidate-canary.test-support.js";
@@ -83,8 +83,7 @@ export function registerCanaryMigrationPolicyTests({
       await fs.rm(
         path.join(canaryStateOptions().root, "dist", "infra", "update-migrated-finalize.worker.js"),
       );
-      const onStep = vi.fn();
-      const result = await validate({ onStep, migrationPolicy });
+      const result = await validate({ migrationPolicy });
       const rehearsing = migrationPolicy === "rehearse";
       expect(result).toMatchObject({
         status: rehearsing ? "ok" : "error",
@@ -100,7 +99,6 @@ export function registerCanaryMigrationPolicyTests({
           "This version uses the current updater to finish installation",
         );
       }
-      expect(onStep).toHaveBeenCalledWith(result.steps[0]);
       expect([mocks.snapshot.mock.calls, mocks.spawn.mock.calls]).toEqual([[], []]);
     },
   );

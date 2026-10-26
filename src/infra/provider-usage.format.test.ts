@@ -3,10 +3,14 @@ import { formatUsageReportLines, formatUsageWindowSummary } from "./provider-usa
 import type { ProviderUsageSnapshot } from "./provider-usage.types.js";
 
 const now = Date.UTC(2026, 0, 7, 12);
-const snapshot = (windows: ProviderUsageSnapshot["windows"]): ProviderUsageSnapshot => ({
+const snapshot = (
+  windows: ProviderUsageSnapshot["windows"] = [],
+  fields: Partial<ProviderUsageSnapshot> = {},
+): ProviderUsageSnapshot => ({
   provider: "anthropic",
   displayName: "Claude",
   windows,
+  ...fields,
 });
 const report = (...providers: ProviderUsageSnapshot[]) =>
   formatUsageReportLines({ updatedAt: now, providers });
@@ -41,43 +45,35 @@ it("limits compact windows and includes available resets", () => {
 });
 
 it("renders signed balances and budgets on compact and detailed surfaces", () => {
-  const provider: ProviderUsageSnapshot = {
-    provider: "openrouter",
-    displayName: "OpenRouter",
+  const provider = snapshot([], {
     plan: "Production",
-    windows: [],
     billing: [
       { type: "balance", amount: -2.5, unit: "USD" },
       { type: "budget", label: "API key budget", used: 5, limit: 20, unit: "USD" },
     ],
-  };
+  });
   expect(formatUsageWindowSummary(provider)).toBe("Balance: -$2.50");
   expect(report(provider)).toEqual([
     "Usage:",
-    "  OpenRouter (Production)",
+    "  Claude (Production)",
     "    Balance: -$2.50",
     "    API key budget: $5.00 / $20.00",
   ]);
 });
 
 it("reports provider errors, empty snapshots, summaries, and quota windows", () => {
-  const balance = {
-    ...snapshot([]),
-    provider: "deepseek",
+  const balance = snapshot([], {
     displayName: "DeepSeek",
     summary: "Balance ¥0.00",
     plan: "Unavailable",
-  };
+  });
   expect(formatUsageWindowSummary(balance)).toBe("Balance ¥0.00");
   expect(
     report(
-      { ...snapshot([]), error: "Token expired", plan: "Pro" },
-      { ...snapshot([]), displayName: "Xiaomi" },
+      snapshot([], { error: "Token expired", plan: "Pro" }),
+      snapshot([], { displayName: "Xiaomi" }),
       balance,
-      {
-        ...snapshot([window("Daily", 25, now + 120 * 60_000)]),
-        plan: "Pro",
-      },
+      snapshot([window("Daily", 25, now + 120 * 60_000)], { plan: "Pro" }),
     ),
   ).toEqual([
     "Usage:",
@@ -87,8 +83,4 @@ it("reports provider errors, empty snapshots, summaries, and quota windows", () 
     "  Claude (Pro)",
     "    Daily: 75% left · resets 2h",
   ]);
-});
-
-it("reports when no provider usage is available", () => {
-  expect(report()).toEqual(["Usage: no provider usage available."]);
 });

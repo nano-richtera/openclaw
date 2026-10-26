@@ -29,26 +29,24 @@ export function pauseAt<T>(
   };
 }
 
-export function idleActiveWorkInspectors(): GatewayActiveWorkInspectors {
-  const idle = () => 0;
-  return {
-    getQueueSize: idle,
-    getPendingReplies: idle,
-    getEmbeddedRuns: idle,
-    getBackgroundExecSessions: idle,
-    getCronRuns: idle,
-    getAgentRuns: idle,
-    getAcpRuns: idle,
-    getMediaRuns: idle,
-    getRootRequests: idle,
-    getSessionAdmissions: idle,
-    getSessionMutations: idle,
-    getChatRuns: idle,
-    getQueuedTurns: idle,
-    getTerminalPersistence: idle,
-    getTerminalSessions: idle,
-  };
-}
+const idle = () => 0;
+export const idleActiveWorkInspectors = (): GatewayActiveWorkInspectors => ({
+  getQueueSize: idle,
+  getPendingReplies: idle,
+  getEmbeddedRuns: idle,
+  getBackgroundExecSessions: idle,
+  getCronRuns: idle,
+  getAgentRuns: idle,
+  getAcpRuns: idle,
+  getMediaRuns: idle,
+  getRootRequests: idle,
+  getSessionAdmissions: idle,
+  getSessionMutations: idle,
+  getChatRuns: idle,
+  getQueuedTurns: idle,
+  getTerminalPersistence: idle,
+  getTerminalSessions: idle,
+});
 
 const handoff = {
   pid: 12345,
@@ -77,22 +75,13 @@ export async function recordedFailureReport(
   });
 }
 
-export function expectNoCalls(...mocks: unknown[]) {
-  for (const mock of mocks) {
-    expect(mock).not.toHaveBeenCalled();
-  }
-}
+export const expectNoCalls = (...mocks: unknown[]) =>
+  mocks.forEach((mock) => expect(mock).not.toHaveBeenCalled());
 
-export function expectIncludes(text: unknown, ...parts: string[]) {
-  for (const part of parts) {
-    expect(text).toContain(part);
-  }
-}
+export const expectIncludes = (text: unknown, ...parts: string[]) =>
+  parts.forEach((part) => expect(text).toContain(part));
 
-export function matchingObject(shape: Record<string, unknown>) {
-  return [expect.objectContaining(shape)];
-}
+export const matchingObject = (shape: Record<string, unknown>) => [expect.objectContaining(shape)];
 
-export function containingObject(shape: Record<string, unknown>) {
-  return expect.arrayContaining(matchingObject(shape));
-}
+export const containingObject = (shape: Record<string, unknown>) =>
+  expect.arrayContaining(matchingObject(shape));

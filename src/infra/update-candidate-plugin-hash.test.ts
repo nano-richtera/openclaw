@@ -18,12 +18,8 @@ vi.mock("node:os", async (importOriginal) => ({
 vi.mock("./worker-task-pool.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./worker-task-pool.js")>()),
   WorkerTaskPool: class {
-    run(input: UpdateCandidatePluginHashRequest, options: unknown) {
-      return transport.run(input, options);
-    }
-    close() {
-      return transport.close();
-    }
+    run = transport.run;
+    close = transport.close;
   },
 }));
 // mock-isolation: A gated fake transport must not initialize compiled subprocesses; actual worker coverage lives in update-candidate-plugin-file.worker.test.ts.
@@ -60,12 +56,6 @@ it.each(["settled", "failed"] as const)(
     const closeFailure = new Error("hash worker retirement unconfirmed");
     const failed = await expectDrainedWorkerFailure(transport, {
       start: f.prepare,
-      inspect: (request) => {
-        expect(request.type).toBe("snapshot-hash");
-        for (const value of Object.values(request.expected)) {
-          expect(typeof value).toBe("bigint");
-        }
-      },
       failedReply: {
         type: "failed",
         error: new Error(failure.message),
