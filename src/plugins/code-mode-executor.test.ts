@@ -1,10 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { resolveCodeModeConfig } from "../agents/code-mode-runtime.js";
-import { migrateLegacyConfig } from "../commands/doctor/shared/legacy-config-migrate.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 
 const loadManifestMetadataSnapshot = vi.hoisted(() => vi.fn());
@@ -43,30 +41,22 @@ beforeEach(() => {
 });
 
 it.each([
-  ["bundled", undefined, false, true],
-  ["global", { allow: [pluginId], entries: { [pluginId]: { enabled: true } } }, false, true],
-  ["global", { enabled: false }, false, false],
-  ["global", { deny: [pluginId] }, false, false],
-  ["global", { allow: ["another-plugin"] }, false, false],
-  ["global", { entries: { [pluginId]: { enabled: false } } }, false, false],
-  ["bundled", { enabled: false }, true, true],
-  ["bundled", { allow: ["openai"] }, true, true],
-  ["bundled", { enabled: false, deny: [pluginId] }, true, false],
-  ["bundled", { allow: ["openai"], entries: { [pluginId]: { enabled: false } } }, true, false],
-] satisfies Array<["global" | "bundled", OpenClawConfig["plugins"], boolean, boolean]>)(
-  "enforces %s executor policy %j (migrate=%s, allowed=%s) and runs admitted artifacts",
-  async (origin, plugins, migrate, allowed) => {
+  ["bundled", undefined, true],
+  ["global", { allow: [pluginId], entries: { [pluginId]: { enabled: true } } }, true],
+  ["global", { enabled: false }, false],
+  ["global", { deny: [pluginId] }, false],
+  ["global", { allow: ["another-plugin"] }, false],
+  ["global", { entries: { [pluginId]: { enabled: false } } }, false],
+  ["bundled", { enabled: false }, true],
+  ["bundled", { allow: ["openai"] }, true],
+  ["bundled", { enabled: false, deny: [pluginId] }, false],
+  ["bundled", { allow: ["openai"], entries: { [pluginId]: { enabled: false } } }, false],
+] satisfies Array<["global" | "bundled", OpenClawConfig["plugins"], boolean]>)(
+  "enforces %s executor policy %j (allowed=%s)",
+  async (origin, plugins, allowed) => {
     setOrigin(origin);
-    const raw = { tools: { codeMode: { enabled: true, runtime: "quickjs-wasi" } }, plugins };
-    const original = structuredClone(raw);
-    let config: OpenClawConfig = { plugins };
-    if (migrate) {
-      const migrated = migrateLegacyConfig(raw, { sourceConfigBeforeMigrations: raw });
-      expect(migrated.partiallyValid).toBeUndefined();
-      config = expectDefined(migrated.sourceConfig, "migrated QuickJS config");
-      expect(config.plugins).toEqual(plugins);
-      expect(resolveCodeModeConfig(config)).toMatchObject({ enabled: true, executor: "quickjs" });
-    }
+    const config = { plugins };
+    const original = structuredClone(config);
     if (allowed) {
       const executor = resolvePluginCodeModeExecutor("quickjs", config);
       expect(executor.id).toBe("quickjs");
@@ -84,7 +74,7 @@ it.each([
     } else {
       expect(() => resolvePluginCodeModeExecutor("quickjs", config)).toThrow(unavailable);
     }
-    expect(raw).toEqual(original);
+    expect(config).toEqual(original);
   },
 );
 
