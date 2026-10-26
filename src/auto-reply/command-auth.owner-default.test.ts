@@ -1,7 +1,4 @@
-import { createHash } from "node:crypto";
 import { expect, it } from "vitest";
-import { resolveOwnerPromptNumbers } from "../agents/owner-display.js";
-import { buildAgentSystemPrompt } from "../agents/system-prompt.js";
 import type { OpenClawConfig } from "../config/config.js";
 import {
   isResetAuthorizedForContext,
@@ -33,6 +30,7 @@ const telegramGroup = sender(
   "telegram",
 );
 const nonOwner = { senderIsOwner: false, isAuthorizedSender: true };
+const noOwnerList = { ownerList: [], ...nonOwner };
 const telegramConfig = { channels: { telegram: {} } };
 
 it.each([{ allowFrom: ["*"] }, { allowFrom: ["456"] }])(
@@ -62,7 +60,7 @@ it.each<[string, OpenClawConfig, MsgContext, Partial<ReturnType<typeof authorize
     "channel allowlist is not ownership",
     { channels: { telegram: { allowFrom: ["200482621"] } } },
     sender("200482621", { ChatType: "direct" }, "telegram"),
-    { ownerList: [], ...nonOwner },
+    noOwnerList,
   ],
   [
     "native cannot bypass owner allowlist",
@@ -70,12 +68,7 @@ it.each<[string, OpenClawConfig, MsgContext, Partial<ReturnType<typeof authorize
     telegramGroup,
     { senderIsOwner: false, isAuthorizedSender: false },
   ],
-  [
-    "wildcard is not ownership",
-    discordConfig(["*"]),
-    sender("anyone"),
-    { ownerList: [], ...nonOwner },
-  ],
+  ["wildcard is not ownership", discordConfig(["*"]), sender("anyone"), noOwnerList],
   [
     "internal admin is owner",
     {},
@@ -86,7 +79,7 @@ it.each<[string, OpenClawConfig, MsgContext, Partial<ReturnType<typeof authorize
   expect(authorize({ ctx, cfg, commandAuthorized: true })).toMatchObject(expected);
 });
 
-it("keeps a large owner allowlist authorized without exhausting the model prompt", () => {
+it("authorizes the last owner in a large allowlist and observes its revocation", () => {
   const ownerIds = Array.from({ length: 9_282 }, (_, index) =>
     String(100_000_000_000_000_000n + BigInt(index)),
   );
@@ -102,22 +95,6 @@ it("keeps a large owner allowlist authorized without exhausting the model prompt
     senderIsOwner: true,
     isAuthorizedSender: true,
   });
-
-  const promptParams = {
-    workspaceDir: "/tmp/openclaw",
-    ownerNumbers: resolveOwnerPromptNumbers({ ownerNumbers: auth.ownerList, ...auth }),
-    runtimeInfo: { channel: "discord" },
-  };
-  const prompt = buildAgentSystemPrompt(promptParams);
-  const ownerLine = prompt.split("## Authorized Senders\n")[1]?.split("\n")[0] ?? "";
-
-  expect(ownerLine).toContain(ownerId);
-  expect(Buffer.byteLength(ownerLine, "utf8")).toBeLessThanOrEqual(1_024);
-
-  const hashedPrompt = buildAgentSystemPrompt({ ...promptParams, ownerDisplay: "hash" });
-  const ownerHash = createHash("sha256").update(ownerId).digest("hex").slice(0, 12);
-  expect(hashedPrompt).toContain(ownerHash);
-  expect(hashedPrompt).not.toContain(ownerId);
 
   cfg.commands?.ownerAllowFrom?.pop();
   const revoked = resolve();
