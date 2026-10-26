@@ -102,13 +102,7 @@ it("settles child delivery before a blocked requester mirror", ({ signal }) =>
           directIdempotencyKey: "announce:v1:child:run",
           deliveryTarget: { deliver: true, channel: "discord", to: "dm:mirror-fixture" },
           contentKind: "completed_result",
-          agentResult: { payloads: [{ text: "Synthetic child result" }] },
-          internalEvents: taskCompletionEvents({
-            childSessionKey: "agent:main:subagent:child",
-            taskLabel: "synthetic child",
-            statusLabel: "completed",
-            result: "Synthetic child result",
-          }),
+          internalEvents: taskCompletionEvents({ result: "Synthetic child result" }),
           onDeliveryResult,
         });
       const result = await withinTest(
@@ -119,7 +113,9 @@ it("settles child delivery before a blocked requester mirror", ({ signal }) =>
       );
       await deliveryWork.drain();
       expect(result).toMatchObject({ delivered: true, path: "direct" });
-      expect(onDeliveryResult).toHaveBeenCalledOnce();
+      expect(onDeliveryResult).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ delivered: true, deliveredAt: expect.any(Number) }),
+      );
       expect(send).toHaveBeenCalledOnce();
 
       release.resolve();
