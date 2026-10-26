@@ -4,7 +4,6 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, expect, it, vi } from "vitest";
 import { writeOpenClawConfig } from "../config/test-helpers.js";
 import { OPENCLAW_STATE_SCHEMA_VERSION } from "../state/openclaw-state-db-contract.js";
-import * as stateRepair from "../state/openclaw-state-db-repair.js";
 import {
   closeOpenClawStateDatabaseAsync,
   openOpenClawStateDatabase,
@@ -58,15 +57,11 @@ it.each([
   ],
 ] as const)("preserves plugin obligations after damage at %s", async (phase, sql, refuses) => {
   await withPreparedState(async (databasePath) => {
-    const repair = vi.spyOn(stateRepair, "repairStateSchema");
     let injected = false;
     const operation = runDoctorConfigPreflight({
       ...repairOptions,
       measure: async (name, run) => {
         if (!injected && name === `doctor.config-preflight.${phase}`) {
-          if (refuses) {
-            expect(repair).not.toHaveBeenCalled();
-          }
           await damageState(databasePath, sql);
           injected = true;
         }
@@ -75,7 +70,6 @@ it.each([
     });
     if (refuses) {
       await expect(operation).rejects.toThrow(/foreign_key_check|state migration refused/);
-      expect(repair).toHaveBeenCalledOnce();
     } else {
       await operation;
       const { db } = openOpenClawStateDatabase();

@@ -65,41 +65,29 @@ describe("legacy backup hardlinks", () => {
     );
   });
 
-  it("does not substitute an unrelated same-suffix file for a missing target", async () => {
-    const archivePath = await writeArchive([
-      file("state/present.bin"),
-      { path: `${ARCHIVE_ROOT}/payload/posix/other/.openclaw/state/a.bin`, contents: "other" },
-      link(),
-    ]);
-    await expect(verifyBackupArchive(archivePath)).rejects.toThrow(/hardlink target is missing/i);
-  });
-
-  it("rejects ambiguous legacy targets instead of selecting different recovery bytes", async () => {
-    const archivePath = await writeArchive([
-      file("state/a.bin", "first recovery copy"),
-      file("a.bin", "different recovery copy"),
-      link("a.bin"),
-    ]);
-    await expect(verifyBackupArchive(archivePath)).rejects.toThrow(/hardlink target is ambiguous/i);
-  });
-
   it.each([
-    ["directory", { path: `${ASSET_ROOT}/state/a.bin`, type: "Directory" }, link()],
-    ["self", undefined, link(".openclaw/state/b.bin")],
+    [
+      "unrelated same-suffix file",
+      [{ path: `${ARCHIVE_ROOT}/payload/posix/other/.openclaw/state/a.bin`, contents: "other" }],
+      link(),
+      "missing",
+    ],
+    [
+      "ambiguous recovery bytes",
+      [file("state/a.bin", "first recovery copy"), file("a.bin", "different recovery copy")],
+      link("a.bin"),
+      "ambiguous",
+    ],
+    ["directory", [{ path: `${ASSET_ROOT}/state/a.bin`, type: "Directory" }], link(), "missing"],
+    ["self", [], link(".openclaw/state/b.bin"), "missing"],
     [
       "another hardlink",
-      { ...link(".openclaw/state/present.bin"), path: `${ASSET_ROOT}/state/a.bin` },
+      [{ ...link(".openclaw/state/present.bin"), path: `${ASSET_ROOT}/state/a.bin` }],
       link(),
+      "missing",
     ],
-  ] as const)(
-    "rejects a legacy target that only resolves to %s",
-    async (_target, entry, hardlink) => {
-      const archivePath = await writeArchive([
-        file("state/present.bin"),
-        ...(entry ? [entry] : []),
-        hardlink,
-      ]);
-      await expect(verifyBackupArchive(archivePath)).rejects.toThrow(/hardlink target is missing/i);
-    },
-  );
+  ] as const)("rejects a legacy target with %s", async (_target, entries, hardlink, failure) => {
+    const archivePath = await writeArchive([file("state/present.bin"), ...entries, hardlink]);
+    await expect(verifyBackupArchive(archivePath)).rejects.toThrow(`hardlink target is ${failure}`);
+  });
 });

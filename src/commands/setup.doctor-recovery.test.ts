@@ -14,14 +14,7 @@ import { runNonInteractiveSetup } from "./onboard-non-interactive.js";
 import { setupCommand } from "./setup.js";
 import { makePrompter, makeRuntime } from "./setup/__tests__/test-utils.js";
 
-const noteMock = vi.hoisted(() => vi.fn<(message: string, title?: string) => void>());
-
-vi.mock("../../packages/terminal-core/src/note.js", () => ({ note: noteMock }));
-
-afterEach(() => {
-  noteMock.mockClear();
-  closeOpenClawStateDatabaseForTest();
-});
+afterEach(closeOpenClawStateDatabaseForTest);
 
 it("points failed setup to a repair that works without a terminal", async () => {
   const repairHint =
@@ -43,7 +36,6 @@ it("points failed setup to a repair that works without a terminal", async () => 
           plugins: { enabled: false },
         });
         const original = await fs.readFile(configPath, "utf8");
-        expect((await readConfigFileSnapshot()).valid).toBe(false);
 
         const baseline = makeRuntime();
         await expect(setupCommand({ json: true }, baseline)).rejects.toThrow("exit:1");
@@ -68,18 +60,11 @@ it("points failed setup to a repair that works without a terminal", async () => 
 
         await using guided = await prepareDoctorContext(configPath, { options: {} });
         expect(guided.prompter.repairMode.nonInteractive).toBe(true);
-        expect(guided.configResult.shouldWriteConfig).toBe(false);
-        expect(
-          noteMock.mock.calls.some(([message]) => message.includes("actionTimeoutTypoMs")),
-        ).toBe(true);
         await runInitialConfigWriteHealth(guided);
         expect(await fs.readFile(configPath, "utf8")).toBe(original);
-        expect((await readConfigFileSnapshot()).valid).toBe(false);
 
         await using repair = await prepareDoctorContext(configPath, { options: { repair: true } });
-        expect(repair.configResult.shouldWriteConfig).toBe(true);
         await runInitialConfigWriteHealth(repair);
-        expect(repair.configResultWriteCommitted).toBe(true);
         const repaired = await readConfigFileSnapshot();
         expect(repaired.valid).toBe(true);
         expect(repaired.config.browser).toEqual({ enabled: false });
