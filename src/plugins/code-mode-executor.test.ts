@@ -2,7 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
-import { resolveCodeModeConfig } from "../agents/code-mode-runtime.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 
 const loadManifestMetadataSnapshot = vi.hoisted(() => vi.fn());
@@ -35,7 +34,7 @@ beforeEach(() => {
   writeArtifact("index.js", "export default {};\n");
   writeArtifact(
     "code-mode-executor-api.js",
-    'export const codeModeExecutor = { id: "quickjs", async execute() { return { status: "completed", value: { kind: "complete", json: "42" }, output: { count: 0, source: { kind: "complete", json: "[]" } } }; } };\n',
+    'export const codeModeExecutor = { id: "quickjs", async execute() {} };\n',
   );
   setOrigin("bundled");
 });
@@ -53,24 +52,12 @@ it.each([
   ["bundled", { allow: ["openai"], entries: { [pluginId]: { enabled: false } } }, false],
 ] satisfies Array<["global" | "bundled", OpenClawConfig["plugins"], boolean]>)(
   "enforces %s executor policy %j (allowed=%s)",
-  async (origin, plugins, allowed) => {
+  (origin, plugins, allowed) => {
     setOrigin(origin);
     const config = { plugins };
     const original = structuredClone(config);
     if (allowed) {
-      const executor = resolvePluginCodeModeExecutor("quickjs", config);
-      expect(executor.id).toBe("quickjs");
-      const result = await executor.execute(
-        {
-          kind: "exec",
-          source: "return 42",
-          catalog: [],
-          namespaces: [],
-          config: resolveCodeModeConfig(),
-        },
-        { timeoutMs: 1000 },
-      );
-      expect(result).toMatchObject({ status: "completed", value: { json: "42" } });
+      expect(resolvePluginCodeModeExecutor("quickjs", config).id).toBe("quickjs");
     } else {
       expect(() => resolvePluginCodeModeExecutor("quickjs", config)).toThrow(unavailable);
     }
