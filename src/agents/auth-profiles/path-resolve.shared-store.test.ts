@@ -63,10 +63,7 @@ it("ignores runtime-only external profiles when displaying store ownership", asy
 
   sqlite.writePersistedAuthProfileStoreRaw(persistedStore);
   snapshots.setRuntimeAuthProfileStoreSnapshot(
-    {
-      ...persistedStore,
-      runtimeExternalProfileIds: ["openai:test"],
-    },
+    { ...persistedStore, runtimeExternalProfileIds: ["openai:test"] },
     agentDir,
   );
 
