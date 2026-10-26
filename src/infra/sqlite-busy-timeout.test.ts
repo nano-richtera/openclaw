@@ -36,9 +36,7 @@ it.each([
     exec.mockRestore();
     expect(timeoutOf(db)).toEqual({ timeout: initial });
   }
-  expect(withTimeout(db, temporary, () => timeoutOf(db))).toEqual({
-    timeout: temporary,
-  });
+  expect(withTimeout(db, temporary, () => timeoutOf(db))).toEqual({ timeout: temporary });
   expect(timeoutOf(db)).toEqual({ timeout: initial });
   expect(() =>
     withTimeout(db, 25, () => {
@@ -96,10 +94,7 @@ it("suppresses expected lock warnings only for the scoped attempt", () => {
   contender.exec("PRAGMA busy_timeout = 0; BEGIN IMMEDIATE");
 
   const attempt = () =>
-    runSqliteImmediateTransactionSync(db, () => undefined, {
-      busyTimeoutMs: 0,
-      logger,
-    });
+    runSqliteImmediateTransactionSync(db, () => undefined, { busyTimeoutMs: 0, logger });
   expect(() => withTimeout(db, 0, attempt, suppress)).toThrow();
   expect(logger.warn).not.toHaveBeenCalled();
 });
