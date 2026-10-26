@@ -293,25 +293,26 @@ async function preparePacedActivity(page: Page, gateway: MockGatewayControls) {
 const fixture = { dataPage: "activity", route, fixtureOverrides: createDataActivityLiveFixture };
 
 export const dataActivityLiveScenarios: readonly InteractionScenario[] = [
-  ...[20, 80].map((rounds): InteractionScenario => ({
-    ...fixture,
-    id: `data-activity-live-paced-retention-${rounds}`,
-    diagnostic:
-      "Finite paced retention workload; intentional delivery delays and assertion overhead are included.",
-    expected:
-      `${rounds} paced rounds update 20 sessions through start, two previews and result; ` +
-      "each phase retains the newest 100 rows and each update/result has its exact preview.",
-    rowSelector,
-    prepare: preparePacedActivity,
-    run: async (page) => {
-      const result = await pacedRounds(
-        page,
-        population + pacedWarmupRounds * activeSessions,
-        rounds,
-      );
-      return { ...result, warmupRounds: pacedWarmupRounds };
-    },
-  })),
+  ...[20, 80].map((rounds): InteractionScenario =>
+    Object.assign({}, fixture, {
+      id: `data-activity-live-paced-retention-${rounds}`,
+      diagnostic:
+        "Finite paced retention workload; intentional delivery delays and assertion overhead are included.",
+      expected:
+        `${rounds} paced rounds update 20 sessions through start, two previews and result; ` +
+        "each phase retains the newest 100 rows and each update/result has its exact preview.",
+      rowSelector,
+      prepare: preparePacedActivity,
+      run: async (page: Page) => {
+        const result = await pacedRounds(
+          page,
+          population + pacedWarmupRounds * activeSessions,
+          rounds,
+        );
+        return { ...result, warmupRounds: pacedWarmupRounds };
+      },
+    }),
+  ),
   {
     ...fixture,
     id: "data-activity-live-first-render",
