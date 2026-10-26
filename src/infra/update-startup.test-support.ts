@@ -30,31 +30,31 @@ vi.mock("../config/config.js", () => ({ getRuntimeConfig: mocks.getRuntimeConfig
 
 vi.mock("./update-triage.js", () => ({ runUpdateFailureTriage: mocks.runUpdateFailureTriageMock }));
 
-vi.mock("../model-catalog/remote-refresh.js", async (original) => ({
-  ...(await original<typeof import("../model-catalog/remote-refresh.js")>()),
+vi.mock(import("../model-catalog/remote-refresh.js"), async (original) => ({
+  ...(await original()),
   refreshRemoteModelCatalog: mocks.refreshRemoteModelCatalogMock,
 }));
 
-vi.mock("./openclaw-root.js", async (original) => ({
-  ...(await original<typeof import("./openclaw-root.js")>()),
+vi.mock(import("./openclaw-root.js"), async (original) => ({
+  ...(await original()),
   resolveOpenClawPackageRoot: vi.fn(),
 }));
 
-vi.mock("./restart.js", async () => ({
-  ...(await vi.importActual<typeof import("./restart.js")>("./restart.js")),
+vi.mock(import("./restart.js"), async (original) => ({
+  ...(await original()),
   scheduleGatewayRestart: mocks.scheduleGatewayRestartMock,
 }));
 
-vi.mock("./supervisor-markers.js", async (original) => ({
-  ...(await original<typeof import("./supervisor-markers.js")>()),
+vi.mock(import("./supervisor-markers.js"), async (original) => ({
+  ...(await original()),
   detectRespawnSupervisor: mocks.detectRespawnSupervisorMock,
 }));
 
 // mock-isolation: Observe startup telemetry without making network requests.
 vi.mock("./telemetry.js", () => ({ checkTelemetryUpdate: mocks.checkTelemetryUpdateMock }));
 
-vi.mock("./update-check.js", async (original) => ({
-  ...(await original<typeof import("./update-check.js")>()),
+vi.mock(import("./update-check.js"), async (original) => ({
+  ...(await original()),
   checkUpdateStatus: vi.fn(),
   resolveNpmChannelTag: vi.fn(),
 }));
@@ -68,10 +68,8 @@ vi.mock("../version.js", () => ({
 // mock-isolation: Startup fixtures must not execute updater commands.
 vi.mock("../process/exec.js", () => ({ runCommandWithTimeout: vi.fn() }));
 
-vi.mock("./update-managed-service-handoff.js", async () => ({
-  ...(await vi.importActual<typeof import("./update-managed-service-handoff.js")>(
-    "./update-managed-service-handoff.js",
-  )),
+vi.mock(import("./update-managed-service-handoff.js"), async (original) => ({
+  ...(await original()),
   cancelManagedServiceUpdateHandoff: mocks.cancelManagedServiceUpdateHandoffMock,
   startManagedServiceUpdateHandoff: mocks.startManagedServiceUpdateHandoffMock,
   transferManagedServiceUpdateHandoff: mocks.transferManagedServiceUpdateHandoffMock,

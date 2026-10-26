@@ -10,11 +10,7 @@ import {
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 const verifiedAt = Date.parse("2026-10-11T12:00:00Z");
-const proof = {
-  schemaIdentity: "state:20",
-  verifiedAt,
-  facts: { readiness: true, schemaVersion: 20 },
-};
+const proof = { schemaIdentity: "state:20", verifiedAt, facts: true };
 
 beforeEach(() => {
   vi.spyOn(Date, "now").mockReturnValue(verifiedAt);
@@ -47,7 +43,7 @@ it.each([
   [
     "changed-payload",
     "malformed-proof",
-    (p: string) => editSeal(p, (s) => s.replace('readiness\\":true', 'readiness\\":false')),
+    (p: string) => editSeal(p, (s) => s.replace('facts\\":true', 'facts\\":false')),
   ],
   ["invalid-envelope", "malformed-proof", (p: string) => editSeal(p, () => "[]")],
   ["contents", "file-mismatch", (p: string) => fs.appendFileSync(p, " changed")],

@@ -1,22 +1,15 @@
-import { createServer, IncomingMessage, request, ServerResponse } from "node:http";
+import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { Socket } from "node:net";
-import { buffer } from "node:stream/consumers";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { reserveTestPortListener } from "../test-utils/port-claims.js";
-import {
-  sendJson,
-  sendJsonNoStore,
-  sendJsonWithoutCharset,
-  sendLengthFramedJson,
-  writeJsonWithoutCharset,
-} from "./http-json.js";
+import * as json from "./http-json.js";
 
 const writers = {
-  plain: sendJson,
-  private: sendJsonNoStore,
-  framed: sendLengthFramedJson,
-  bare: sendJsonWithoutCharset,
-  committed: writeJsonWithoutCharset,
+  plain: json.sendJson,
+  private: json.sendJsonNoStore,
+  framed: json.sendLengthFramedJson,
+  bare: json.sendJsonWithoutCharset,
+  committed: json.writeJsonWithoutCharset,
 };
 type Writer = keyof typeof writers;
 const contentType = (writer: Writer) =>
@@ -51,29 +44,22 @@ it.each<Writer>(["plain", "private", "framed", "bare", "committed"])(
   "preserves %s JSON bytes, cache policy and HEAD framing",
   async (writer) => {
     for (const method of ["GET", "HEAD"]) {
-      const res = await new Promise<IncomingMessage>((resolve, reject) => {
-        request(
-          `http://127.0.0.1:${listener.claim.port}/${writer}`,
-          { method, agent: false },
-          resolve,
-        )
-          .once("error", reject)
-          .end();
+      const res = await fetch(`http://127.0.0.1:${listener.claim.port}/${writer}`, {
+        method,
+        headers: { Connection: "close" },
       });
-      const body = (await buffer(res)).toString("utf8");
-      expect(res).toMatchObject({
-        statusCode: 202,
-        headers: {
-          "content-type": contentType(writer),
-          "cache-control": writer === "private" ? "no-store" : "private, no-cache",
-          "x-content-type-options": "nosniff",
-        },
+      const body = await res.text();
+      expect(res.status).toBe(202);
+      expect(Object.fromEntries(res.headers)).toMatchObject({
+        "content-type": contentType(writer),
+        "cache-control": writer === "private" ? "no-store" : "private, no-cache",
+        "x-content-type-options": "nosniff",
       });
-      expect(res.headers["transfer-encoding"]).toBe(
-        writer === "committed" && method === "GET" ? "chunked" : undefined,
+      expect(res.headers.get("transfer-encoding")).toBe(
+        writer === "committed" && method === "GET" ? "chunked" : null,
       );
-      expect(res.headers["content-length"]).toBe(
-        (method === "GET" && writer !== "committed") || writer === "framed" ? "21" : undefined,
+      expect(res.headers.get("content-length")).toBe(
+        (method === "GET" && writer !== "committed") || writer === "framed" ? "21" : null,
       );
       expect(body).toBe(method === "GET" ? '{"text":"🦞 café"}' : "");
     }
