@@ -36,6 +36,7 @@ vi.mock("../banner.js", () => ({
   hasEmittedCliBanner: () => false,
 }));
 
+// mock-isolation: Help version fixtures must not read the host checkout or packaged build metadata.
 vi.mock("../../infra/git-commit.js", () => ({ resolveCommitHash: resolveCommitHashMock }));
 
 const testProgramContext = { programVersion: "9.9.9-test" };

@@ -17,6 +17,7 @@ vi.mock("../agents/prepared-model-runtime.js", () => ({
   refreshPreparedModelRuntimeSnapshots: vi.fn(async () => {}),
 }));
 
+// mock-isolation: Prove HTTP bind without starting the unrelated chat metadata runtime or listeners.
 vi.mock("./server-chat-metadata-lifecycle.js", () => ({
   createGatewayChatMetadataLifecycle: vi.fn(async () => ({
     attachContext: vi.fn(async () => {}),
