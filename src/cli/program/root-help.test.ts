@@ -1,39 +1,25 @@
-// Root help tests cover top-level help rendering and command visibility.
 import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { captureEnv } from "../../test-utils/env.js";
 import type { NamedCommandDescriptor } from "./command-group-descriptors.js";
 import { outputRootHelp } from "./root-help.js";
 
+function descriptor(
+  name: string,
+  description = name,
+  hasSubcommands = false,
+): NamedCommandDescriptor {
+  return { name, description, hasSubcommands };
+}
 const getPluginCliCommandDescriptorsMock = vi.fn(
-  async (
-    _configForTest?: unknown,
-    _env?: unknown,
-    _loaderOptions?: unknown,
-  ): Promise<NamedCommandDescriptor[]> => [
-    {
-      name: "matrix",
-      description: "Matrix channel utilities",
-      hasSubcommands: true,
-    },
+  async (_configForTest?: unknown, _env?: unknown, _loaderOptions?: unknown) => [
+    descriptor("matrix", "Matrix channel utilities", true),
   ],
 );
 
 vi.mock("./core-command-descriptors.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./core-command-descriptors.js")>()),
-  CORE_CLI_COMMAND_DESCRIPTORS: [
-    {
-      name: "status",
-      description: "Show status",
-      hasSubcommands: false,
-    },
-  ],
-  getCoreCliCommandDescriptors: () => [
-    {
-      name: "status",
-      description: "Show status",
-      hasSubcommands: false,
-    },
-  ],
+  CORE_CLI_COMMAND_DESCRIPTORS: [descriptor("status", "Show status")],
+  getCoreCliCommandDescriptors: () => [descriptor("status", "Show status")],
 }));
 
 vi.mock("../../plugins/cli-root-descriptors.js", () => ({
@@ -56,28 +42,15 @@ describe("root help", () => {
   });
 
   it("passes isolated config and env through to plugin CLI descriptor loading", async () => {
-    const config = {
-      agents: {
-        defaults: {
-          workspace: "/tmp/openclaw-root-help-workspace",
-        },
-      },
-    };
-    const env = { OPENCLAW_STATE_DIR: "/tmp/openclaw-root-help-state" } as NodeJS.ProcessEnv;
-
+    const config = { agents: { defaults: { workspace: "/tmp/openclaw-root-help-workspace" } } };
+    const env = { OPENCLAW_STATE_DIR: "/tmp/openclaw-root-help-state" };
     await outputRootHelp({ config, env, pluginSdkResolution: "src" });
 
     expect(getPluginCliCommandDescriptorsMock).toHaveBeenCalledWith(config, env, {
       pluginSdkResolution: "src",
     });
-  });
-
-  it("includes plugin CLI descriptors alongside core and sub-CLI commands", async () => {
-    await outputRootHelp({ config: {} });
-
     expect(text).toContain("status");
     expect(text).toContain("gateway *");
-    expect(text).toContain("matrix");
     expect(text).toContain("matrix *");
     expect(text).toContain("Matrix channel utilities");
   });
@@ -90,11 +63,10 @@ describe("root help", () => {
 
   it("strips unsafe terminal escapes from plugin command descriptions", async () => {
     getPluginCliCommandDescriptorsMock.mockResolvedValueOnce([
-      {
-        name: "safe-command",
-        description: "Open \u001B]8;;https://example.test\u0007link\u001B]8;;\u0007 now\u001B[2J",
-        hasSubcommands: false,
-      },
+      descriptor(
+        "safe-command",
+        "Open \u001B]8;;https://example.test\u0007link\u001B]8;;\u0007 now\u001B[2J",
+      ),
     ]);
     await outputRootHelp({ config: {} });
     expect(text).toContain("Open link now");
@@ -104,8 +76,8 @@ describe("root help", () => {
 
   it("keeps hidden plugin descriptors out of help", async () => {
     getPluginCliCommandDescriptorsMock.mockResolvedValueOnce([
-      { name: "visible", description: "Visible", hasSubcommands: false },
-      { name: "retired", description: "Retired", hasSubcommands: false, hidden: true },
+      descriptor("visible", "Visible"),
+      { ...descriptor("retired", "Retired"), hidden: true },
     ]);
     await outputRootHelp({ config: {} });
     expect(text).toContain("visible");
@@ -113,9 +85,7 @@ describe("root help", () => {
   });
 
   it("rejects unsafe plugin command names without emitting help", async () => {
-    getPluginCliCommandDescriptorsMock.mockResolvedValueOnce([
-      { name: "bad\nname", description: "Bad", hasSubcommands: false },
-    ]);
+    getPluginCliCommandDescriptorsMock.mockResolvedValueOnce([descriptor("bad\nname", "Bad")]);
     await expect(outputRootHelp({ config: {} })).rejects.toThrow(
       'Invalid CLI command name: "bad\\nname"',
     );
@@ -124,10 +94,10 @@ describe("root help", () => {
 
   it("keeps the first core, sub-CLI and normalized plugin command descriptions", async () => {
     getPluginCliCommandDescriptorsMock.mockResolvedValueOnce([
-      { name: "status", description: "Ignored core duplicate", hasSubcommands: false },
-      { name: "gateway", description: "Ignored sub-CLI duplicate", hasSubcommands: true },
-      { name: " alpha ", description: "First alpha", hasSubcommands: false },
-      { name: "alpha", description: "Ignored normalized duplicate", hasSubcommands: false },
+      descriptor("status", "Ignored core duplicate"),
+      descriptor("gateway", "Ignored sub-CLI duplicate", true),
+      descriptor(" alpha ", "First alpha"),
+      descriptor("alpha", "Ignored normalized duplicate"),
     ]);
     await outputRootHelp({ config: {} });
     expect(text).toContain("Show status");

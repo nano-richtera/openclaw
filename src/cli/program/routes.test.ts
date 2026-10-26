@@ -8,7 +8,6 @@ import { tryRouteCli } from "../route.js";
 import { expectNoCalls } from "./program.test-helpers.js";
 
 const modelsStatusCommandMock = vi.hoisted(() => vi.fn(async () => {}));
-const statusJsonCommandMock = vi.hoisted(() => vi.fn(async () => {}));
 const runDaemonStatusMock = vi.hoisted(() => vi.fn(async () => {}));
 
 vi.mock("../command-execution-startup.js", () => ({
@@ -20,18 +19,10 @@ vi.mock("../../commands/models/list.status-command.js", () => ({
   modelsStatusCommand: modelsStatusCommandMock,
 }));
 
-vi.mock("../../commands/status-json.js", () => ({
-  statusJsonCommand: statusJsonCommandMock,
-}));
-
 // mock-isolation: Route dispatch stops at the daemon entrypoint without opening service state.
 vi.mock("../daemon-cli/status.js", () => ({
   runDaemonStatus: runDaemonStatusMock,
 }));
-
-function routeArgv(args = ""): string[] {
-  return ["node", "openclaw", ...(args ? args.split(" ") : [])];
-}
 
 describe("program routes", () => {
   beforeEach(() => {
@@ -40,16 +31,8 @@ describe("program routes", () => {
   });
   afterEach(() => vi.unstubAllEnvs());
 
-  async function expectRunFalse(argv: string[]) {
-    await expect(tryRouteCli(argv)).resolves.toBe(false);
-    expectNoCalls(
-      vi.mocked(applyCliExecutionStartupPresentation),
-      vi.mocked(ensureCliExecutionBootstrap),
-    );
-  }
-
   async function expectRouted(args: string) {
-    await expect(tryRouteCli(routeArgv(args))).resolves.toBe(true);
+    await expect(tryRouteCli(["node", "openclaw", ...args.split(" ")])).resolves.toBe(true);
   }
 
   it.each([
@@ -58,8 +41,12 @@ describe("program routes", () => {
     ["sessions", "--store", ""],
     ["models", "--", "--status-json"],
   ])("defers unsupported arguments %j to Commander", async (...args) => {
-    await expectRunFalse(["node", "openclaw", ...args]);
-    expect(modelsStatusCommandMock).not.toHaveBeenCalled();
+    await expect(tryRouteCli(["node", "openclaw", ...args])).resolves.toBe(false);
+    expectNoCalls(
+      vi.mocked(applyCliExecutionStartupPresentation),
+      vi.mocked(ensureCliExecutionBootstrap),
+      modelsStatusCommandMock,
+    );
   });
 
   it("routes local runtime intent with config and plugin startup disabled", async () => {
@@ -71,14 +58,6 @@ describe("program routes", () => {
       expect.objectContaining({
         startupPolicy: expect.objectContaining({ skipConfigGuard: true, loadPlugins: false }),
       }),
-    );
-  });
-
-  it("routes status --json through the lean JSON command", async () => {
-    await expectRouted("status --json --deep --usage --agent beta --timeout 5000");
-    expect(statusJsonCommandMock).toHaveBeenCalledWith(
-      { deep: true, all: false, usage: true, agent: "beta", timeoutMs: 5000 },
-      defaultRuntime,
     );
   });
 

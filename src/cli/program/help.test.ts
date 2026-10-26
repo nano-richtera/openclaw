@@ -42,32 +42,37 @@ describe("configureProgramHelp", () => {
     vi.unstubAllEnvs();
   });
 
-  async function parseHelp(argv: string[]) {
+  function createProgram(argv: string[]) {
     process.argv = ["node", "openclaw", ...argv];
-    let stdout = "";
-    let stderr = "";
+    const output = { stdout: "", stderr: "" };
     const program = new OpenClawCommand().enablePositionalOptions().exitOverride();
     configureProgramHelp(program, testProgramContext);
     program.configureOutput({
       writeOut: (value) => {
-        stdout += stripVTControlCharacters(formatProgramHelpOutput(value));
+        output.stdout += stripVTControlCharacters(formatProgramHelpOutput(value));
       },
       writeErr: (value) => {
-        stderr += stripVTControlCharacters(value);
+        output.stderr += stripVTControlCharacters(value);
       },
     });
-    program.command("models").description("models");
-    program.command("claws").description("claws");
-    program.command("status").description("status");
-    const plugins = program.command("plugins").description("Manage plugins");
-    plugins
+    return { program, output };
+  }
+
+  async function parseHelp(argv: string[]) {
+    const { program, output } = createProgram(argv);
+    for (const name of ["models", "claws", "status"]) {
+      program.command(name).description(name);
+    }
+    program
+      .command("plugins")
+      .description("Manage plugins")
       .command("list")
       .description("List plugins")
       .action(() => {});
 
     const error = await program.parseAsync(process.argv).catch((cause: unknown) => cause);
     expect(error).toBeInstanceOf(CommanderError);
-    return { error: error as CommanderError, stderr, stdout };
+    return { error: error as CommanderError, ...output };
   }
 
   it("keeps valid root, group, subcommand, short, and help-command output successful", async () => {
@@ -98,14 +103,7 @@ describe("configureProgramHelp", () => {
   });
 
   it("formats parse errors from the exact Commander command path", async () => {
-    let stderr = "";
-    const program = new OpenClawCommand().enablePositionalOptions().exitOverride();
-    configureProgramHelp(program, testProgramContext);
-    program.configureOutput({
-      writeErr: (value) => {
-        stderr += stripVTControlCharacters(value);
-      },
-    });
+    const { program, output } = createProgram([]);
     program
       .command("plugins")
       .option("--source <source>")
@@ -123,9 +121,9 @@ describe("configureProgramHelp", () => {
       ).toBeInstanceOf(CommanderError);
     }
 
-    expect(stderr.match(/Try: openclaw plugins list --help/g)).toHaveLength(2);
-    expect(stderr).not.toContain("openclaw plugins list list --help");
-    expect(stderr).toContain("Did you mean this?\n  openclaw plugins list\n");
+    expect(output.stderr.match(/Try: openclaw plugins list --help/g)).toHaveLength(2);
+    expect(output.stderr).not.toContain("openclaw plugins list list --help");
+    expect(output.stderr).toContain("Did you mean this?\n  openclaw plugins list\n");
   });
 
   it.each([

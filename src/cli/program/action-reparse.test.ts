@@ -1,8 +1,27 @@
-// Action reparse tests cover Commander action reparsing for nested CLI commands.
 import { Command } from "commander";
 import { describe, expect, it, vi } from "vitest";
 import { removeCommandByName } from "./command-tree.js";
 import { registerCommandGroups } from "./register-command-groups.js";
+
+function registerLazy(parent: Command, name: string, register: () => void) {
+  const placeholder = { name, description: "Lazy test command" };
+  registerCommandGroups(parent, [{ placeholders: [placeholder], register }], {
+    eager: false,
+    primary: null,
+    registerPrimaryOnly: false,
+  });
+}
+
+function browserExtension(
+  parentFlags = "-p, --browser-profile <name>",
+  childFlags = "-p, --preview",
+) {
+  const root = new Command().name("openclaw");
+  const browser = root.command("browser").option(parentFlags);
+  const extension = browser.command("extension");
+  const pair = extension.command("pair").option(childFlags);
+  return { browser, extension, pair };
+}
 
 async function expectReparseArgv(params: {
   parent: Command;
@@ -15,18 +34,9 @@ async function expectReparseArgv(params: {
     root = root.parent;
   }
   removeCommandByName(params.parent, params.action.name());
-  registerCommandGroups(
-    params.parent,
-    [
-      {
-        placeholders: [{ name: params.action.name(), description: "Lazy test command" }],
-        register: () => {
-          params.parent.addCommand(params.action);
-        },
-      },
-    ],
-    { eager: false, primary: null, registerPrimaryOnly: false },
-  );
+  registerLazy(params.parent, params.action.name(), () => {
+    params.parent.addCommand(params.action);
+  });
   const parse = root.parseAsync.bind(root);
   const parseAsync = vi.spyOn(root, "parseAsync").mockResolvedValue(root);
   parseAsync.mockImplementationOnce(parse);
@@ -41,24 +51,15 @@ describe("lazy command action reparsing", () => {
   it("keeps literal flag-looking values through actual lazy reparse", async () => {
     const program = new Command().name("openclaw").enablePositionalOptions();
     const received: string[] = [];
-    registerCommandGroups(
-      program,
-      [
-        {
-          placeholders: [{ name: "config", description: "Read config" }],
-          register: () => {
-            program
-              .command("config")
-              .command("get")
-              .argument("<path>")
-              .action((value: string) => {
-                received.push(value);
-              });
-          },
-        },
-      ],
-      { eager: false, primary: null, registerPrimaryOnly: false },
-    );
+    registerLazy(program, "config", () => {
+      program
+        .command("config")
+        .command("get")
+        .argument("<path>")
+        .action((value: string) => {
+          received.push(value);
+        });
+    });
     await program.parseAsync(["node", "openclaw", "config", "get", "--", "--help"]);
     expect(received).toEqual(["--help"]);
   });
@@ -88,20 +89,14 @@ describe("lazy command action reparsing", () => {
   });
 
   it("leaves a child-owned option collision after the child command", async () => {
-    const root = new Command().name("openclaw");
-    const browser = root.command("browser").option("--json");
-    const extension = browser.command("extension");
+    const { browser, extension } = browserExtension("--json", "--json");
     extension.command("path");
-    extension.command("pair").option("--json");
     const argv = ["node", "openclaw", "browser", "extension", "pair", "--json"];
     await expectReparseArgv({ parent: browser, action: extension, argv, expected: argv });
   });
 
   it("preserves an unknown suffix after a child-owned boolean short flag", async () => {
-    const root = new Command().name("openclaw");
-    const browser = root.command("browser").option("-p, --browser-profile <name>");
-    const extension = browser.command("extension");
-    const pair = extension.command("pair").option("-p, --preview");
+    const { browser, extension, pair } = browserExtension();
 
     const parsed = pair.parseOptions(["-pfoo"]);
 
@@ -113,10 +108,8 @@ describe("lazy command action reparsing", () => {
   });
 
   it("preserves child-owned short groups with an optional separate value", async () => {
-    const root = new Command().name("openclaw");
-    const browser = root.command("browser").option("-p, --browser-profile <name>");
-    const extension = browser.command("extension");
-    const pair = extension.command("pair").option("-p, --preview").option("-r, --retry [value]");
+    const { browser, extension, pair } = browserExtension();
+    pair.option("-r, --retry [value]");
 
     const parsed = pair.parseOptions(["-pr", "remote"]);
 
@@ -131,11 +124,7 @@ describe("lazy command action reparsing", () => {
     const root = new Command().name("openclaw").exitOverride();
     const browser = root.command("browser").option("--browser-profile <name>");
     const register = vi.fn();
-    registerCommandGroups(
-      browser,
-      [{ placeholders: [{ name: "tabs", description: "Browser tabs" }], register }],
-      { eager: false, primary: null, registerPrimaryOnly: false },
-    );
+    registerLazy(browser, "tabs", register);
     const argv = ["node", "openclaw", "browser", "tabs", "--browser-profile"];
     await expect(root.parseAsync(argv)).rejects.toMatchObject({
       code: "commander.optionMissingArgument",

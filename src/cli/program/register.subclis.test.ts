@@ -31,12 +31,7 @@ const mocks = vi.hoisted(() => {
     tui: vi.fn((program: Command) => program.command("tui").aliases(["terminal", "chat"])),
     cron: vi.fn((program: Command) => program.command("cron").alias("automations")),
     pairing: registrar("pairing").register,
-    plugins: vi.fn((program: Command) =>
-      program
-        .command("plugins")
-        .command("update [id]")
-        .action(() => undefined),
-    ),
+    plugins: registrar("plugins", [], "update [id]").register,
     pluginCommands: vi.fn(async (_program: Command) => null),
     channels: vi.fn(async () => undefined),
     resume: registrar("resume").register,
@@ -50,33 +45,29 @@ const mocks = vi.hoisted(() => {
 
 // mock-isolation: Registration-order tests use synthetic subcommands without initializing live plugins or services.
 vi.mock("../acp-cli.js", () => ({ registerAcpCli: mocks.acp }));
-// mock-isolation: Registration-order tests use synthetic subcommands without initializing live plugins or services.
+// mock-isolation: Synthetic registrar; do not initialize live services.
 vi.mock("../gateway-cli.js", () => ({ registerGatewayCli: mocks.gateway }));
-// mock-isolation: Registration-order tests use synthetic subcommands without initializing live plugins or services.
-vi.mock("../gateway-cli/run-command.js", () => ({
-  addGatewayRunCommand: mocks.gatewayRun,
-}));
-// mock-isolation: Registration-order tests use synthetic subcommands without initializing live plugins or services.
+// mock-isolation: Synthetic registrar; do not initialize live services.
+vi.mock("../gateway-cli/run-command.js", () => ({ addGatewayRunCommand: mocks.gatewayRun }));
+// mock-isolation: Synthetic registrar; do not initialize live services.
 vi.mock("../nodes-cli.js", () => ({ registerNodesCli: mocks.nodes }));
-// mock-isolation: Registration-order tests use synthetic subcommands without initializing live plugins or services.
+// mock-isolation: Synthetic registrar; do not initialize live services.
 vi.mock("../capability-cli.js", () => ({ registerCapabilityCli: mocks.infer }));
-// mock-isolation: Registration-order tests use synthetic subcommands without initializing live plugins or services.
-vi.mock("../exec-approvals-cli.js", () => ({
-  registerExecApprovalsCli: mocks.approvals,
-}));
-// mock-isolation: Registration-order tests use synthetic subcommands without initializing live plugins or services.
+// mock-isolation: Synthetic registrar; do not initialize live services.
+vi.mock("../exec-approvals-cli.js", () => ({ registerExecApprovalsCli: mocks.approvals }));
+// mock-isolation: Synthetic registrar; do not initialize live services.
 vi.mock("../tui-cli.js", () => ({ registerTuiCli: mocks.tui }));
-// mock-isolation: Registration-order tests use synthetic subcommands without initializing live plugins or services.
+// mock-isolation: Synthetic registrar; do not initialize live services.
 vi.mock("../cron-cli.js", () => ({ registerCronCli: mocks.cron }));
-// mock-isolation: registration-order checks must not initialize channel plugins or pairing stores.
+// mock-isolation: Synthetic registrar; do not initialize pairing stores.
 vi.mock("../pairing-cli.js", () => ({ registerPairingCli: mocks.pairing }));
-// mock-isolation: Registration-order tests use synthetic subcommands without initializing live plugins or services.
+// mock-isolation: Synthetic registrar; do not initialize live plugins.
 vi.mock("../plugins-cli.js", () => ({ registerPluginsCli: mocks.plugins }));
-// mock-isolation: Registration-order tests use synthetic subcommands without initializing live plugins or services.
+// mock-isolation: Synthetic registrar; do not initialize live plugins.
 vi.mock("../channels-cli.js", () => ({ registerChannelsCli: mocks.channels }));
-// mock-isolation: Registration-order tests use synthetic subcommands without initializing live plugins or services.
+// mock-isolation: Synthetic registrar; do not initialize live services.
 vi.mock("../resume-cli.js", () => ({ registerResumeCli: mocks.resume }));
-// mock-isolation: Registration-order tests use synthetic subcommands without initializing live plugins or services.
+// mock-isolation: Synthetic registrar; do not initialize live plugins.
 vi.mock("../../plugins/cli.js", () => ({
   registerPluginCliCommandsFromValidatedConfig: mocks.pluginCommands,
 }));
