@@ -694,11 +694,11 @@ function applyPluginHarnessDenyAllToolPolicy(
 }
 
 function appendPluginHarnessToolPolicyPrompt(existing: string | undefined, prompt: string): string {
-  const trimmed = existing?.trim();
-  if (!trimmed) {
+  // Preserve producer-annotated byte offsets when appending persistent policy.
+  if (!existing) {
     return prompt;
   }
-  return trimmed.includes(prompt) ? trimmed : `${trimmed}\n\n${prompt}`;
+  return existing.includes(prompt) ? existing : `${existing}\n\n${prompt}`;
 }
 
 function logAgentHarnessSelection(

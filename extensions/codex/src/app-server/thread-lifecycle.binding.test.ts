@@ -1551,72 +1551,85 @@ describe("Codex app-server thread lifecycle bindings", () => {
     });
   });
 
-  it("resumes a retained persistent thread with refreshed persona and skills", async () => {
-    const sessionFile = path.join(tempDir, "warm-skills-session.jsonl");
-    const workspaceDir = path.join(tempDir, "warm-skills-workspace");
-    const params = createParams(sessionFile, workspaceDir);
-    const respond = vi.fn(async (method: string) => {
-      if (method === "config/read") {
-        return { config: {}, origins: {}, layers: [] };
-      }
-      if (method === "configRequirements/read") {
-        return { requirements: null };
-      }
-      if (method === "thread/start" || method === "thread/resume") {
-        return threadStartResult("thread-warm-skills");
-      }
-      throw new Error(`unexpected method: ${method}`);
-    });
-    const fixture = await createLeasedCodexLifecycleHarness({
-      agentDir: path.join(tempDir, "agent"),
-      respond,
-    });
-    const { client, request } = fixture;
-    const common = {
-      client,
-      params,
-      userMcpServersEnabled: false,
-      developerInstructions: "generic policy",
-    };
-    const firstSkills =
-      "## OpenClaw Skills\n\nweather\n\n<AGENT_SOUL>Original persona</AGENT_SOUL>";
-    const secondSkills = "## OpenClaw Skills\n\nweather\n\n<AGENT_SOUL>Edited persona</AGENT_SOUL>";
-    const started = await startOrResumeThread({ ...common, refreshableInstructions: firstSkills });
-    // The catalog rides the thread developer carrier, after the generic policy.
-    expect(request.mock.calls.find(([method]) => method === "thread/start")?.[1]).toMatchObject({
-      developerInstructions: `generic policy\n\n${firstSkills}`,
-    });
-    await retainThread(client, started);
+  it.each([undefined, "Current conversation metadata."])(
+    "resumes without a relay while preserving refreshed persona and annotated context (%s)",
+    async (context) => {
+      const sessionFile = path.join(tempDir, "warm-skills-session.jsonl");
+      const workspaceDir = path.join(tempDir, "warm-skills-workspace");
+      const params = createParams(sessionFile, workspaceDir);
+      params.extraSystemPrompt = context;
+      params.extraSystemPromptTurnContext = context ? { start: 0, text: context } : undefined;
+      const persistentWithContext = context ? `generic policy\n\n${context}` : "generic policy";
+      const respond = vi.fn(async (method: string) => {
+        if (method === "config/read") {
+          return { config: {}, origins: {}, layers: [] };
+        }
+        if (method === "configRequirements/read") {
+          return { requirements: null };
+        }
+        if (method === "thread/start" || method === "thread/resume") {
+          return threadStartResult("thread-warm-skills");
+        }
+        throw new Error(`unexpected method: ${method}`);
+      });
+      const fixture = await createLeasedCodexLifecycleHarness({
+        agentDir: path.join(tempDir, "agent"),
+        respond,
+      });
+      const { client, request } = fixture;
+      const common = {
+        client,
+        params,
+        userMcpServersEnabled: false,
+        developerInstructions: "generic policy",
+      };
+      const firstSkills =
+        "## OpenClaw Skills\n\nweather\n\n<AGENT_SOUL>Original persona</AGENT_SOUL>";
+      const secondSkills =
+        "## OpenClaw Skills\n\nweather\n\n<AGENT_SOUL>Edited persona</AGENT_SOUL>";
+      const started = await startOrResumeThread({
+        ...common,
+        refreshableInstructions: firstSkills,
+      });
+      // The catalog rides the thread developer carrier, after the generic policy.
+      expect(request.mock.calls.find(([method]) => method === "thread/start")?.[1]).toMatchObject({
+        developerInstructions: `${persistentWithContext}\n\n${firstSkills}`,
+      });
+      await retainThread(client, started);
 
-    // Editing a skill must reach a live persistent conversation. The catalog is part
-    // of the thread carrier, so warm reuse is invalidated and the same thread is
-    // cold-resumed with the new catalog instead of losing the conversation.
-    const resumed = await startOrResumeThread({ ...common, refreshableInstructions: secondSkills });
+      // Editing a skill must reach a live persistent conversation. The catalog is part
+      // of the thread carrier, so warm reuse is invalidated and the same thread is
+      // cold-resumed with the new catalog instead of losing the conversation.
+      const resumed = await startOrResumeThread({
+        ...common,
+        refreshableInstructions: secondSkills,
+      });
 
-    expect(resumed).toMatchObject({
-      threadId: "thread-warm-skills",
-      lifecycle: { action: "resumed" },
-    });
-    expect(resumed.liveThreadConfigFingerprint).not.toBe(started.liveThreadConfigFingerprint);
-    expect(request.mock.calls.map(([method]) => method)).toEqual(WARM_RESUME_METHODS);
-    const resumeParams = request.mock.calls.find(([method]) => method === "thread/resume")?.[1];
-    expect(resumeParams).toMatchObject({
-      developerInstructions: `generic policy\n\n${secondSkills}`,
-    });
-    // The refreshed catalog also reaches the live conversation through the existing
-    // generic policy handoff, so the resumed turn is not answered from the old catalog.
-    const injected = request.mock.calls.find(([method]) => method === "thread/inject_items")?.[1];
-    expect(injected).toMatchObject({
-      threadId: "thread-warm-skills",
-      items: [
-        {
-          type: "message",
-          role: "developer",
-          content: [{ type: "input_text", text: expect.stringContaining(secondSkills) }],
-        },
-      ],
-    });
-  });
+      expect(resumed).toMatchObject({
+        threadId: "thread-warm-skills",
+        lifecycle: { action: "resumed" },
+      });
+      expect(resumed.liveThreadConfigFingerprint).not.toBe(started.liveThreadConfigFingerprint);
+      expect(request.mock.calls.map(([method]) => method)).toEqual(WARM_RESUME_METHODS);
+      const resumeParams = request.mock.calls.find(([method]) => method === "thread/resume")?.[1];
+      expect(resumeParams).toMatchObject({
+        developerInstructions: `${persistentWithContext}\n\n${secondSkills}`,
+      });
+      // The refreshed catalog also reaches the live conversation through the existing
+      // generic policy handoff, so the resumed turn is not answered from the old catalog.
+      const injected = request.mock.calls.find(([method]) => method === "thread/inject_items")?.[1];
+      expect(injected).toMatchObject({
+        threadId: "thread-warm-skills",
+        items: [
+          {
+            type: "message",
+            role: "developer",
+            content: [{ type: "input_text", text: expect.stringContaining(secondSkills) }],
+          },
+        ],
+      });
+    },
+  );
 
   it("releases and resumes a retained thread when its auth profile changes", async () => {
     const sessionFile = path.join(tempDir, "warm-auth-session.jsonl");

@@ -192,7 +192,9 @@ export async function prepareCodexAttemptContext(
     ) || undefined;
   const baseDeveloperInstructions = joinPresentSections(
     buildDeveloperInstructions(runtimeParams, {
-      dynamicTools: toolBridge.availableSpecs,
+      // The lifecycle restores turn context to creation policy if no relay is selected.
+      omitConversationTurnContext: true,
+      dynamicTools: toolBridge.specs,
       nativeCodeModeOnlyEnabled:
         runtime.nativeToolSurfaceEnabled && connection.appServer.codeModeOnly,
     }),

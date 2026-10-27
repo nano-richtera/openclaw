@@ -154,6 +154,8 @@ export type AgentCommandOpts = {
   /** Startup awaits returned work; incidental synchronous return values are ignored. */
   onExecutionStarted?: () => unknown;
   extraSystemPrompt?: string;
+  /** Exact producer-owned transient section; unannotated instructions remain persistent. */
+  extraSystemPromptTurnContext?: { start: number; text: string };
   /** Conversation preparation owns silence guidance; required-reply enforcement is separate. */
   silentReplyPromptMode?: SilentReplyPromptMode;
   bootstrapContextMode?: "full" | "lightweight";
@@ -278,6 +280,7 @@ export const AGENT_COMMAND_PUBLIC_INGRESS_DEFAULTS = Object.freeze({
   assertSourceCurrent: undefined,
   operatorAuthority: undefined,
   privateCompletion: undefined,
+  extraSystemPromptTurnContext: undefined,
   skillLibraryAuthoring: undefined,
   cronCreatorAuthorityCapability: undefined,
   onAdmittedRunContext: undefined,

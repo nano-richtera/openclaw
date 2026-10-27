@@ -6,7 +6,11 @@ import {
   type CodexDynamicToolFunctionSpec,
   type CodexDynamicToolSpec,
 } from "./protocol.js";
-import { buildDeveloperInstructions } from "./thread-prompt.js";
+import {
+  buildDeveloperInstructions,
+  buildCodexConversationTurnInstructions,
+  splitCodexExtraSystemPrompt,
+} from "./thread-prompt.js";
 
 const delegationTools: CodexDynamicToolSpec[] = [
   {
@@ -429,4 +433,48 @@ it("includes Codex app-server scoped plugin command guidance in developer instru
   } finally {
     clearPluginCommands();
   }
+});
+
+describe("producer-annotated conversation context", () => {
+  it.each([
+    ["Current context.\n\nPolicy.\n", 0, "Policy.\n"],
+    ["Policy.\n\nCurrent context.", 9, "Policy."],
+    ["Prefix.\n\nCurrent context.\n\nSuffix.", 9, "Prefix.\n\nSuffix."],
+  ])("splits only the exact annotated section (%s)", (prompt, start, persistent) => {
+    const params = createParams({
+      extraSystemPrompt: prompt,
+      extraSystemPromptTurnContext: { start, text: "Current context." },
+    });
+    expect(splitCodexExtraSystemPrompt(params)).toEqual({ persistent, turn: "Current context." });
+    const creation = buildDeveloperInstructions(params, { omitConversationTurnContext: true });
+    expect(creation).not.toContain("Current context.");
+    expect(buildDeveloperInstructions(params)).toContain("Current context.");
+    expect(buildCodexConversationTurnInstructions(params, [])).toContain("Current context.");
+  });
+
+  it.each([
+    { start: -1, text: "Current context." },
+    { start: 0.5, text: "Current context." },
+    { start: 0, text: "Replaced context." },
+    { start: 0, text: "Current" },
+    { start: 8, text: "context." },
+    { start: 0, text: "" },
+  ])("retains unverified annotations as persistent policy (%j)", (annotation) => {
+    const prompt = "Current context.\n\nPolicy.";
+    const params = createParams({
+      extraSystemPrompt: prompt,
+      extraSystemPromptTurnContext: annotation,
+    });
+    expect(splitCodexExtraSystemPrompt(params)).toEqual({ persistent: prompt, turn: undefined });
+    expect(buildDeveloperInstructions(params, { omitConversationTurnContext: true })).toContain(
+      prompt,
+    );
+  });
+
+  it("lists only currently available executors without granting declaration authority", () => {
+    const text = buildCodexConversationTurnInstructions(createParams(), [delegationTools[0]!]);
+    expect(text).toContain("accepted declarations alone do not grant execution");
+    expect(text).toContain("sessions_spawn");
+    expect(text).not.toContain("sessions_send");
+  });
 });

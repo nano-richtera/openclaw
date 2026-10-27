@@ -1607,13 +1607,18 @@ describe("runAgentHarnessAttempt", () => {
       messageProvider: "telegram",
       groupId: "test-deny-room",
       senderId: "test-denied-sender",
-      extraSystemPrompt: "Existing operator note.",
+      extraSystemPrompt: "  Existing operator note.\n",
+      extraSystemPromptTurnContext: { start: 0, text: "  Existing operator note.\n" },
     });
 
     expect(runAttempt).toHaveBeenCalledTimes(1);
     const attempt = runAttempt.mock.calls[0]?.[0];
     expect(attempt?.toolsAllow).toEqual([]);
-    expect(attempt?.extraSystemPrompt).toContain("Existing operator note.");
+    expect(attempt?.extraSystemPrompt?.startsWith("  Existing operator note.\n\n\n")).toBe(true);
+    expect(attempt?.extraSystemPromptTurnContext).toEqual({
+      start: 0,
+      text: "  Existing operator note.\n",
+    });
     expect(attempt?.extraSystemPrompt).toContain("this sender is not allowed by policy");
   });
 

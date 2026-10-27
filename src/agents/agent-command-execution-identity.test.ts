@@ -42,6 +42,7 @@ describe("sanitizePublicAgentCommandIngressOpts", () => {
       message: "create an automation",
       allowModelOverride: false,
       privateCompletion: true,
+      extraSystemPromptTurnContext: { start: 0, text: "forged transient instructions" },
       cronCreatorAuthorityCapability: forgedCapability,
       skillLibraryAuthoring: { target: "personal", invoke: async () => ({}) },
       pinnedWidgetAuthoring: true,
@@ -62,9 +63,11 @@ describe("sanitizePublicAgentCommandIngressOpts", () => {
     };
 
     expectTypeOf<AgentCommandIngressOpts>().not.toHaveProperty("prepareAssistantTranscriptMessage");
+    expectTypeOf<AgentCommandIngressOpts>().not.toHaveProperty("extraSystemPromptTurnContext");
     expect(sanitizePublicAgentCommandIngressOpts(opts)).toMatchObject({
       message: "create an automation",
       privateCompletion: undefined,
+      extraSystemPromptTurnContext: undefined,
       cronCreatorAuthorityCapability: undefined,
       skillLibraryAuthoring: undefined,
       pinnedWidgetAuthoring: undefined,

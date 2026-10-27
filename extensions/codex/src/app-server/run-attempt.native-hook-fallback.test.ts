@@ -11,6 +11,7 @@ import {
   createCodexTestHostCapabilities,
   setCodexTestToolFactory,
 } from "./host-capability.test-support.js";
+import { CODEX_INFERENCE_GENERATION_KEY } from "./inference-context.js";
 import {
   getCodexInferenceThread,
   getCodexInferenceThreadQualification,
@@ -18,7 +19,7 @@ import {
 } from "./inference-routing.js";
 import { nativeHookRelayUnregisterQueue } from "./native-hook-relay-state.js";
 import { codexNativeSubagentMonitorRuntime } from "./native-subagent-monitor.js";
-import type { CodexDynamicToolSpec } from "./protocol.js";
+import { isJsonObject, type CodexDynamicToolSpec } from "./protocol.js";
 import { prepareCodexAttemptConnection } from "./run-attempt-connection.js";
 import { prepareCodexAttemptContext } from "./run-attempt-context.js";
 import { prepareCodexAttemptPrompt } from "./run-attempt-prompt.js";
@@ -304,68 +305,138 @@ describe("Codex participant native admission", () => {
 
 describe("Codex native hook Gateway fallback", () => {
   setupRunAttemptTestHooks();
-  it("preserves optional hook policy when a protected parent's completion has no source grant", async () => {
-    const sessionFile = path.join(tempDir, "optional-hook-continuity.jsonl");
-    const workspaceDir = path.join(tempDir, "optional-hook-workspace");
-    // A real leased client registration is required by cold-resume preflight;
-    // the lightweight unregistered fake can cover warm reuse but not policy refusal.
-    const harness = createStartedThreadHarness(
-      async (method) => (method === "account/read" ? { account: { type: "apiKey" } } : undefined),
-      { persistedThreads: [] },
-    );
-    ownCodexInferenceClient(harness.client);
-    const bindingStore = createCodexTestBindingStore();
-    const preflight = vi.spyOn(threadLifecyclePreflight, "prepareCodexThreadLifecyclePreflight");
-    const ownerCapabilities = participantHostCapabilities(() => {});
-    const makeParams = (privateCompletion: boolean, policy = "Persistent synthetic policy.") => {
-      const params = createParams(sessionFile, workspaceDir, {
-        runId: privateCompletion ? "private-completion" : "owner-turn",
-      });
-      params.extraSystemPrompt = policy;
-      params.agentDir = path.join(tempDir, "wire-agent");
-      params.hostCapabilities = createCodexTestHostCapabilities({
-        ...ownerCapabilities,
-        retainSourceAuthority: privateCompletion
-          ? () => undefined
-          : ownerCapabilities.retainSourceAuthority,
-      });
-      // Keep declaration inputs fixed: this regression isolates source-grant loss,
-      // not catalog recovery or changing conversation instructions.
-      setCodexTestToolFactory(params, () => []);
-      return params;
-    };
-    let releaseProtection = () => {};
-    try {
-      for (const privateCompletion of [false, true]) {
-        const run = runCodexAppServerAttempt(makeParams(privateCompletion), { bindingStore });
-        await run.waitForTurnAccepted();
-        if (!privateCompletion) {
-          releaseProtection = protectCodexAppServerLiveThread(harness.client, "thread-1");
+  it.each([false, true])(
+    "preserves protected parent policy across source-grant loss (changing context: %s)",
+    async (changingContext) => {
+      const sessionFile = path.join(tempDir, "optional-hook-continuity.jsonl");
+      const workspaceDir = path.join(tempDir, "optional-hook-workspace");
+      // A real leased client registration is required by cold-resume preflight;
+      // the lightweight unregistered fake can cover warm reuse but not policy refusal.
+      const receivedInstructions: string[] = [];
+      const harness = createStartedThreadHarness(
+        async (method, request) => {
+          if (method === "account/read") {
+            return { account: { type: "apiKey" } };
+          }
+          if (method === "turn/start") {
+            const route = getCodexInferenceThread(harness.client, "thread-1");
+            if (
+              !route ||
+              !isJsonObject(request) ||
+              !isJsonObject(request.responsesapiClientMetadata)
+            ) {
+              throw new Error("Missing managed turn registration");
+            }
+            const generation = request.responsesapiClientMetadata[CODEX_INFERENCE_GENERATION_KEY];
+            if (typeof generation !== "string") {
+              throw new Error("Missing managed generation");
+            }
+            const nativeBody = { instructions: "Native model-owned policy", input: [] };
+            const metadata = { requestKind: "turn", threadId: "thread-1", generation };
+            const prepared = route.context.prepare(nativeBody, metadata);
+            prepared.assertCurrent();
+            expect(typeof prepared.body.instructions).toBe("string");
+            receivedInstructions.push(prepared.body.instructions as string);
+            expect(
+              route.context.prepare(nativeBody, { ...metadata, requestKind: "compaction" }).body,
+            ).toBe(nativeBody);
+            expect(
+              route.context.prepare(nativeBody, {
+                ...metadata,
+                threadId: "child",
+                parentThreadId: "thread-1",
+              }).body,
+            ).toBe(nativeBody);
+          }
+          return undefined;
+        },
+        { persistedThreads: [] },
+      );
+      ownCodexInferenceClient(harness.client);
+      const bindingStore = createCodexTestBindingStore();
+      const preflight = vi.spyOn(threadLifecyclePreflight, "prepareCodexThreadLifecyclePreflight");
+      const ownerCapabilities = participantHostCapabilities(() => {});
+      let attemptIndex = 0;
+      const makeParams = (
+        privateCompletion: boolean,
+        policy = "Persistent synthetic policy.",
+        context = "Owner conversation snapshot.",
+      ) => {
+        const params = createParams(sessionFile, workspaceDir, {
+          runId: `${privateCompletion ? "private-completion" : "owner-turn"}-${attemptIndex++}`,
+        });
+        params.extraSystemPrompt = changingContext ? `${context}\n\n${policy}` : policy;
+        params.extraSystemPromptTurnContext = changingContext
+          ? { start: 0, text: context }
+          : undefined;
+        params.agentDir = path.join(tempDir, "wire-agent");
+        params.hostCapabilities = createCodexTestHostCapabilities({
+          ...ownerCapabilities,
+          retainSourceAuthority: privateCompletion
+            ? () => undefined
+            : ownerCapabilities.retainSourceAuthority,
+        });
+        // Keep declaration inputs fixed: this regression isolates source-grant loss,
+        // not catalog recovery. Annotated conversation instructions vary independently.
+        setCodexTestToolFactory(params, () => []);
+        return params;
+      };
+      let releaseProtection = () => {};
+      try {
+        for (const [index, privateCompletion] of [false, true, false].entries()) {
+          const context = `Conversation snapshot ${index}.`;
+          const run = runCodexAppServerAttempt(makeParams(privateCompletion, undefined, context), {
+            bindingStore,
+          });
+          await run.waitForTurnAccepted();
+          if (index === 0) {
+            releaseProtection = protectCodexAppServerLiveThread(harness.client, "thread-1");
+          }
+          await harness.completeTurn({ threadId: "thread-1", turnId: "turn-1" });
+          expect(readAttemptTerminal(await run).promptError).toBeNull();
         }
-        await harness.completeTurn({ threadId: "thread-1", turnId: "turn-1" });
-        expect(readAttemptTerminal(await run).promptError).toBeNull();
+        // Assert delivery after the entire protected lifecycle: a regression must
+        // first exercise owner-to-completion reuse rather than stop on turn one.
+        if (changingContext) {
+          for (const index of [0, 1, 2]) {
+            expect(receivedInstructions[index]).toContain(`Conversation snapshot ${index}.`);
+            for (const previous of Array.from(
+              { length: index },
+              (_, i) => `Conversation snapshot ${i}.`,
+            )) {
+              expect(receivedInstructions[index]).not.toContain(previous);
+            }
+          }
+        }
+        expect(preflight.mock.calls.map(([params]) => params.nativeModelAdmission)).toEqual([
+          "optional",
+          "optional",
+          "optional",
+        ]);
+        expect(
+          harness.requests
+            .filter(({ method }) => ["thread/start", "thread/resume"].includes(method))
+            .map(({ method }) => method),
+        ).toEqual(["thread/start"]);
+        const initial = harness.requests.find(({ method }) => method === "thread/start");
+        expect(initial?.params).toHaveProperty(["config", "hooks.PreToolUse", 0]);
+        if (changingContext) {
+          expect(JSON.stringify(initial?.params)).not.toContain("Conversation snapshot");
+          expect(JSON.stringify(initial?.params)).toContain("Persistent synthetic policy.");
+        }
+        // Preserving optional hook configuration is not permission to replace
+        // a protected parent's actual persistent policy.
+        await expect(
+          runCodexAppServerAttempt(makeParams(false, "Changed persistent policy."), {
+            bindingStore,
+          }),
+        ).rejects.toThrow(/claimed by active work/);
+      } finally {
+        releaseProtection();
+        harness.close();
       }
-      expect(preflight.mock.calls.map(([params]) => params.nativeModelAdmission)).toEqual([
-        "optional",
-        "optional",
-      ]);
-      expect(
-        harness.requests
-          .filter(({ method }) => ["thread/start", "thread/resume"].includes(method))
-          .map(({ method }) => method),
-      ).toEqual(["thread/start"]);
-      const initial = harness.requests.find(({ method }) => method === "thread/start");
-      expect(initial?.params).toHaveProperty(["config", "hooks.PreToolUse", 0]);
-      // Preserving optional hook configuration is not permission to replace
-      // a protected parent's actual persistent policy.
-      await expect(
-        runCodexAppServerAttempt(makeParams(false, "Changed persistent policy."), { bindingStore }),
-      ).rejects.toThrow(/claimed by active work/);
-    } finally {
-      releaseProtection();
-      harness.close();
-    }
-  });
+    },
+  );
 
   it("publishes cross-profile steering from effective delegation policy and installed admission", async () => {
     const registered = vi.spyOn(agentHarnessRuntime, "setActiveEmbeddedRun");
