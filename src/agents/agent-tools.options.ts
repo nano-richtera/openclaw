@@ -101,12 +101,12 @@ export type OpenClawCodingToolsOptions = {
   cronCreatorToolAllowlistCaptureRef?: CronToolsAllowCaptureRef;
   /** Attempt-local full skill reads that remain visible in the model context. */
   skillInstructionDeliveryCache?: SkillInstructionDeliveryCache;
-  /** Keep the message tool available even when the selected profile omits it. */
-  forceMessageTool?: boolean;
   /** Keep the heartbeat response tool available even when the selected profile omits it. */
   forceHeartbeatTool?: boolean;
   /** If false, build plugin tools only while preserving the shared policy pipeline. */
   includeCoreTools?: boolean;
+  /** Advertise requester-neutral declarations; returned tools cannot execute or export grants. */
+  catalogOnly?: boolean;
   /** Include Tool Search control tools when enabled for this run. */
   includeToolSearchControls?: boolean;
   /** Executes cataloged tools through the active agent run lifecycle. */

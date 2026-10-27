@@ -541,19 +541,22 @@ export function runWithGatewayIndependentRootWorkContinuation<T>(
 export function runWithGatewayDetachedWorkContinuation<T>(
   run: () => Promise<T>,
   origin = "independent",
+  signal?: AbortSignal,
 ): Promise<T> {
-  return runWithGatewayRootWorkContinuation(run, origin, true);
+  return runWithGatewayRootWorkContinuation(run, origin, true, signal);
 }
 
 function runWithGatewayRootWorkContinuation<T>(
   run: () => Promise<T>,
   origin: string,
   detachedWork: boolean,
+  signal?: AbortSignal,
 ): Promise<T> {
+  signal?.throwIfAborted();
   const parent = GATEWAY_WORK_ADMISSION_STATE.currentRootWork.getStore();
   if (!parent || parent.released) {
     return detachedWork
-      ? runWithGatewayDetachedWorkAdmission(run, origin)
+      ? runWithGatewayDetachedWorkAdmission(run, origin, signal)
       : runWithGatewayIndependentRootWorkAdmission(run, origin, getAsyncWorkSignal());
   }
   const admission = createGatewayRootWorkAdmission(origin, detachedWork);

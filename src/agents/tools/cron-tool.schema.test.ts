@@ -4,7 +4,7 @@ import {
 } from "@openclaw/ai/internal/tool-schema";
 import { validateToolArguments } from "@openclaw/llm-core/validation";
 import { Value } from "typebox/value";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createCronTool } from "./cron-tool.js";
 
 function propertyAt(schema: unknown, path: string): Record<string, unknown> | undefined {
@@ -42,6 +42,76 @@ describe("cron model schema regressions", () => {
     expect(restricted.description).not.toContain("delayed self-wakeups");
     expect(restricted.description).toContain("remove");
   });
+
+  it.each([true, false])(
+    "keeps catalog declarations inert and config-aware (triggers=%s)",
+    async (enabled) => {
+      const gatewayCall = vi.fn();
+      const options = {
+        catalogOnly: true,
+        agentSessionKey: "agent:main:dashboard:catalog",
+        config: { cron: { triggers: { enabled } } },
+      };
+      const catalog = createCronTool(options, { callGatewayTool: gatewayCall });
+      expect(propertyAt(catalog.parameters, "job.agentId")).toBeDefined();
+      expect(propertyAt(catalog.parameters, "job.payload.argv")).toBeDefined();
+      expect(propertyAt(catalog.parameters, "job.payload.kind")?.enum).toContain("command");
+      expect(propertyAt(catalog.parameters, "job.schedule.kind")?.enum).toContain("on-exit");
+      expect(propertyAt(catalog.parameters, "job.schedule.command")?.anyOf).toContainEqual({
+        type: "string",
+      });
+      expect(Boolean(propertyAt(catalog.parameters, "job.trigger"))).toBe(enabled);
+      expect(Boolean(propertyAt(catalog.parameters, "job.payload.script"))).toBe(enabled);
+      expect(Boolean(propertyAt(catalog.parameters, "job.payload.toolBudget"))).toBe(enabled);
+      expect(propertyAt(catalog.parameters, "job.schedule.kind")?.enum).toEqual(
+        enabled ? expect.arrayContaining(["stream"]) : expect.not.arrayContaining(["stream"]),
+      );
+      expect(propertyAt(catalog.parameters, "job.payload.kind")?.enum).toEqual(
+        enabled ? expect.arrayContaining(["script"]) : expect.not.arrayContaining(["script"]),
+      );
+      for (const args of [
+        { action: "list" },
+        {
+          action: "update",
+          jobId: "existing",
+          job: { payload: { kind: "command", argv: ["echo", "no"] } },
+        },
+      ]) {
+        await expect(catalog.execute("catalog", args)).rejects.toThrow("catalog-only");
+      }
+      const restricted = createCronTool(
+        { ...options, selfRemoveOnlyJobId: "current" },
+        { callGatewayTool: gatewayCall },
+      );
+      expect(restricted.parameters).toHaveProperty("properties.action.enum", [
+        "status",
+        "list",
+        "get",
+        "remove",
+        "runs",
+        "next_check",
+      ]);
+      expect(restricted.parameters).not.toHaveProperty("properties.job");
+      expect(restricted.description).not.toContain("ADD: job");
+      await expect(
+        restricted.execute("catalog", { action: "remove", jobId: "current" }),
+      ).rejects.toThrow("catalog-only");
+      expect(gatewayCall).not.toHaveBeenCalled();
+      const ordinary = createCronTool(
+        { agentSessionKey: options.agentSessionKey },
+        { callGatewayTool: gatewayCall },
+      );
+      expect(propertyAt(ordinary.parameters, "job.agentId")).toBeUndefined();
+      await expect(
+        ordinary.execute("ordinary", {
+          action: "update",
+          jobId: "existing",
+          job: { payload: { kind: "command", argv: ["echo", "no"] } },
+        }),
+      ).rejects.toThrow("automation command payloads cannot be created or edited");
+      expect(gatewayCall).not.toHaveBeenCalled();
+    },
+  );
 
   it("advertises timeout clears while retaining numeric bounds", () => {
     for (const [timeoutSeconds, accepted] of [

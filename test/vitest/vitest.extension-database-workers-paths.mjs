@@ -178,6 +178,7 @@ export const databaseWorkerExtensionTestFiles = [
   "extensions/codex/src/session-catalog-ephemeral.test.ts",
   "extensions/codex/src/node-exec-server.test.ts",
   "extensions/codex/src/node-exec-server.readiness.test.ts",
+  "extensions/codex/src/app-server/dynamic-tool-build.catalog.test.ts",
   "extensions/codex/src/app-server/dynamic-tool-build.test.ts",
   "extensions/codex/src/app-server/native-subagent-monitor.completion-delivery.test.ts",
   "extensions/codex/src/app-server/native-subagent-monitor.direct-authority.test.ts",

@@ -12,6 +12,50 @@ vi.mock("./openclaw-plugin-tools.js", () => ({
 afterEach(() => vi.restoreAllMocks());
 
 describe("session responsibility assignment in non-owner turns", () => {
+  it("keeps owner-only catalog declarations inert across sender changes and honors configured denial", async () => {
+    const inheritedToolAllowlistRef = ["unchanged"];
+    const cronCreatorToolAllowlistRef: string[] = [];
+    const options = {
+      config: { tools: { allow: ["computer", "gateway", "sessions"] } },
+      workspaceDir: process.cwd(),
+      modelHasVision: true,
+      catalogOnly: true,
+      inheritedToolAllowlistRef,
+      cronCreatorToolAllowlistRef,
+    };
+    const ownerCatalog = createOpenClawCodingTools({ ...options, senderIsOwner: true });
+    const internalCatalog = createOpenClawCodingTools({ ...options, senderIsOwner: false });
+    const declarations = (tools: typeof ownerCatalog) =>
+      tools.map(({ name, description, parameters }) => ({ name, description, parameters }));
+    expect(ownerCatalog.map((tool) => tool.name)).toEqual(
+      expect.arrayContaining(["computer", "gateway"]),
+    );
+    expect(declarations(internalCatalog)).toEqual(declarations(ownerCatalog));
+    expect(inheritedToolAllowlistRef).toEqual(["unchanged"]);
+    expect(cronCreatorToolAllowlistRef).toEqual([]);
+    for (const tool of [...ownerCatalog, ...internalCatalog]) {
+      await expect(tool.execute("catalog-only", {})).rejects.toThrow("catalog-only");
+      expect(tool.prepareArguments).toBeUndefined();
+      expect(tool.prepareBeforeToolCallParams).toBeUndefined();
+      expect(tool.finalizeBeforeToolCallParams).toBeUndefined();
+      expect(tool.getExecutionTimeoutMs).toBeUndefined();
+    }
+    const executable = createOpenClawCodingTools({
+      ...options,
+      catalogOnly: false,
+      senderIsOwner: false,
+    });
+    expect(executable.map((tool) => tool.name)).not.toContain("computer");
+    expect(executable.map((tool) => tool.name)).not.toContain("gateway");
+    const denied = createOpenClawCodingTools({
+      ...options,
+      senderIsOwner: false,
+      config: { tools: { allow: ["computer", "gateway", "sessions"], deny: ["computer"] } },
+    });
+    expect(denied.map((tool) => tool.name)).not.toContain("computer");
+    expect(denied.map((tool) => tool.name)).toContain("gateway");
+  });
+
   it.each([
     { senderIsOwner: false, messageProvider: "webchat" },
     { senderIsOwner: undefined, messageProvider: undefined },

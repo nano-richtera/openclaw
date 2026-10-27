@@ -171,6 +171,10 @@ its result. Release each hold when its registration or assignment ends. The hold
 preserves the original operator ceiling and requester lifecycle; it does not
 grant general tool access or survive revocation or Gateway closure.
 
+Delivery with retained custody runs in its own tracked async-work scope, so
+closing the spawning turn does not cancel the completion handoff. The retained
+source and requester checks still apply before admission and effects.
+
 Bind `createAgentHarnessCompletionEventSink(...)` to the same completion custody
 and an `isSourceCurrent` callback for the exact native assignment. After native
 terminal persistence and the first completion handoff settle, call

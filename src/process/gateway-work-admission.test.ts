@@ -1,6 +1,7 @@
 // Covers root work counting and reversible suspension admission transitions.
 import { setImmediate as nextTurn } from "node:timers/promises";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { withinTest } from "../../test/helpers/promise.js";
 import {
   AsyncWorkScope,
   captureAsyncWorkTracker,
@@ -437,6 +438,53 @@ it.each(["resolve", "reject"] as const)(
     }
   },
 );
+
+it("cancels detached admission during suspension without reopening the fence", async ({
+  signal,
+}) => {
+  const suspension = tryBeginGatewaySuspendAdmission(() => {});
+  expect(suspension?.commit()).toBe(true);
+  const controller = new AbortController();
+  const run = vi.fn(async () => {});
+  const pending = runWithGatewayDetachedWorkContinuation(
+    run,
+    "cancelled-delivery",
+    controller.signal,
+  );
+  const rejected = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  try {
+    controller.abort(new Error("completion revoked"));
+    await withinTest(rejected, signal);
+    expect(getGatewaySuspendAdmissionPhase()).toBe("prepared");
+    expect(getActiveGatewayRootWorkCount()).toBe(0);
+    expect(run).not.toHaveBeenCalled();
+  } finally {
+    suspension?.release();
+    await Promise.allSettled([pending, rejected]);
+  }
+});
+
+it("keeps live-root detached continuations across drain while rejecting cancelled entry", async () => {
+  const root = tryBeginGatewayRootWorkAdmission("completion-owner")!;
+  const controller = new AbortController();
+  const run = vi.fn(async () => "completed");
+  try {
+    await root.run(async () => {
+      markGatewayRestartDraining();
+      await expect(
+        runWithGatewayDetachedWorkContinuation(run, "completion", controller.signal),
+      ).resolves.toBe("completed");
+      controller.abort(new Error("completion revoked"));
+      expect(() =>
+        runWithGatewayDetachedWorkContinuation(run, "completion", controller.signal),
+      ).toThrow("completion revoked");
+    });
+    expect(run).toHaveBeenCalledOnce();
+  } finally {
+    root.release();
+  }
+  expect(getActiveGatewayRootWorkCount()).toBe(0);
+});
 
 it("does not park unrooted started effects behind suspension or restart admission", async () => {
   const suspension = tryBeginGatewaySuspendAdmission(() => {});

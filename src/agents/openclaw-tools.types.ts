@@ -22,6 +22,8 @@ import type { SkillWorkshopRunOptions } from "./tools/skill-workshop-tool-factor
 
 /** Options shared by the coding-tool factory and its OpenClaw tool surface. */
 export type OpenClawSharedToolsOptions = {
+  /** Keep the message tool available even when the selected profile omits it. */
+  forceMessageTool?: boolean;
   /** Complete model-discoverable catalog, prepared by the current host. */
   installedSkills?: readonly InstalledSkill[];
   /**
@@ -107,6 +109,8 @@ export type OpenClawSharedToolsOptions = {
 };
 
 export type OpenClawToolsOptions = {
+  /** Configured declarations only; never exposes executable turn capabilities. */
+  catalogOnly?: boolean;
   /** Host-projected default sandbox surface; cannot execute other session actions. */
   sandboxSessionRenameOnly?: boolean;
   /** Host-issued source for session-control schema projection; execution rechecks the caller. */

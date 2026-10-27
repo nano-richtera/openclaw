@@ -386,6 +386,46 @@ it.each(["read", "edit", "delete", "pin", "unpin"] as const)(
 );
 
 describe("message tool prompt-cache contract", () => {
+  it("keeps the source-independent catalog inert and retains webchat features and configured action policy", async () => {
+    const runMessageAction = vi.fn();
+    const resolveSecrets = vi.fn();
+    const options = {
+      config: {},
+      preparedMessageToolCatalog: EMPTY_CATALOG,
+      catalogOnly: true,
+      requireExplicitTarget: true,
+      runMessageAction,
+      resolveCommandSecretRefsViaGateway: resolveSecrets,
+    };
+    const webchat = createMessageTool({ ...options, currentChannelProvider: "webchat" });
+    const completion = createMessageTool({ ...options, sourceReplyOnly: true });
+    expect(completion.description).toBe(webchat.description);
+    expect(completion.parameters).toEqual(webchat.parameters);
+    expect(completion.parameters).toHaveProperty("properties.clawhub");
+    expect(completion.parameters).toHaveProperty("properties.bestEffort");
+    expect(completion.parameters).toHaveProperty("properties.action.enum", ["broadcast", "send"]);
+    for (const tool of [webchat, completion]) {
+      expect(tool.prepareBeforeToolCallParams).toBeUndefined();
+      expect(tool.finalizeBeforeToolCallParams).toBeUndefined();
+      await expect(
+        tool.execute("catalog", { action: "send", message: "no effect" }),
+      ).rejects.toThrow("catalog-only");
+    }
+    expect(runMessageAction).not.toHaveBeenCalled();
+    expect(resolveSecrets).not.toHaveBeenCalled();
+    const restricted = createMessageTool({
+      ...options,
+      config: { tools: { message: { actions: { allow: ["send"] } } } },
+    });
+    expect(restricted.parameters).toHaveProperty("properties.action.enum", ["send"]);
+    const executable = createMessageTool({
+      ...options,
+      catalogOnly: false,
+      currentChannelProvider: "webchat",
+    });
+    expect(executable.parameters).toHaveProperty("properties.action.enum", ["send"]);
+  });
+
   it.each([false, true])(
     "preserves the serialized definition across delivery modes with sourceReplyOnly=%s",
     (sourceReplyOnly) => {

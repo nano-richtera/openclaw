@@ -44,6 +44,8 @@ export type CronCreatorToolAuthoritySnapshot = Omit<
 };
 
 export type CronToolOptions = {
+  /** Configured declaration only; never binds caller grants or executes. */
+  catalogOnly?: boolean;
   agentSessionKey?: string;
   agentId?: string;
   /** Authenticated source account; authority must not be inferred from delivery. */

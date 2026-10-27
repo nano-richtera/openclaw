@@ -11,6 +11,7 @@ import { getActiveSecretsRuntimeConfigSnapshot } from "../secrets/runtime-state.
 import type { SkillSnapshot } from "../skills/types.js";
 import { resolveGatewayMessageChannel } from "../utils/message-channel.js";
 import { resolveSessionAgentId } from "./agent-scope.js";
+import { createAgentToolCatalogDeclaration } from "./agent-tool-catalog-declaration.js";
 import {
   bindAssembledAgentToolActionDescriptor,
   copyAgentToolMetadata,
@@ -95,11 +96,12 @@ type InternalCodingToolsOptions = OpenClawCodingToolsOptions & {
 
 // Both SDK paths assemble the same options; only compatibility resolves delegate policy synchronously.
 function* assembleOpenClawCodingTools(
-  options?: InternalCodingToolsOptions,
+  inputOptions?: InternalCodingToolsOptions,
   skillReadResources?: SkillSnapshot["resolvedSkills"],
   onPolicyFilter?: (event: ToolPolicyFilterEvent) => void,
   preparedSurface?: { tools: AnyAgentTool[]; policy: ReturnType<typeof prepareCoreToolPolicy> },
 ): Generator<OpenClawToolsOptions, AnyAgentTool[], AnyAgentTool[]> {
+  let options = inputOptions;
   const preparedTools = preparedSurface?.tools;
   const sandbox = options?.sandbox?.enabled ? options.sandbox : undefined;
   const { isMemoryFlushRun, memoryFlush, memoryFlushWritePath } =
@@ -118,6 +120,19 @@ function* assembleOpenClawCodingTools(
       pluginMetadataSnapshot: options?.preparedModelRuntime?.metadataSnapshot,
     });
   const { agentId, runtimePluginToolGrant } = capabilityProfile.policy;
+  const catalogOnly = options?.catalogOnly === true;
+  if (catalogOnly) {
+    // Policy above keeps the real requester. Constructors below describe the
+    // persistent catalog, not this turn's owner posture. This projection never
+    // returns an executable capability or fills descendant/scheduler grants.
+    options = {
+      ...options,
+      senderIsOwner: undefined,
+      inheritedToolAllowlistRef: undefined,
+      cronCreatorToolAllowlistRef: undefined,
+      cronCreatorToolAllowlistCaptureRef: undefined,
+    };
+  }
   // Tool restrictions can belong to another agent. Never use that owner for
   // credentials, requester identity, or execution hooks.
   const executionAgentId =
@@ -612,6 +627,9 @@ function* assembleOpenClawCodingTools(
     hookContext,
     ...(options?.swarmCollector ? { approvalMode: "deny" as const } : {}),
   });
+  if (catalogOnly) {
+    return finalizedTools.map(createAgentToolCatalogDeclaration);
+  }
   return finalizedTools.map(
     createCodingToolsGatewayCaller({
       options,

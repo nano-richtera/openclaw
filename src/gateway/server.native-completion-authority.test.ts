@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { expectDefined } from "@openclaw/normalization-core/expect";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
@@ -37,8 +38,13 @@ import {
   getPluginRuntimeGatewayRequestScope,
   withPluginRuntimeGatewayRequestScope,
 } from "../plugins/runtime/gateway-request-scope.js";
-import { tryBeginGatewayRootWorkAdmission } from "../process/gateway-work-admission.js";
+import * as gatewayWorkAdmission from "../process/gateway-work-admission.js";
+import {
+  getActiveGatewayRootWorkCount,
+  tryBeginGatewayRootWorkAdmission,
+} from "../process/gateway-work-admission.js";
 import * as userTurnTranscript from "../sessions/user-turn-transcript.js";
+import { AsyncWorkScope, getAsyncWorkSignal } from "../shared/async-work-scope.js";
 import { captureGatewayOperatorRunAuthority } from "./operator-run-authority.js";
 import type { GatewayRequestContext } from "./server-methods/types.js";
 import { createOperatorClient } from "./server-plugin-in-process-dispatch.test-support.js";
@@ -308,8 +314,53 @@ describe("native completion final-effect authority", () => {
     },
   );
 
-  it.for(["operator-revoked", "requester-replaced"] as const)(
-    "revalidates %s authority at real Gateway input staging",
+  it("cancels a suspended settled-custody delivery without reopening admission", async ({
+    signal,
+  }) => {
+    await prepareGatewayReplyRuntimeForTest();
+    const context = kernel.gatewayRequestContext;
+    using completion = await createCompletion(context);
+    const before = sessionAccessor.loadTranscriptEventsSync(completion.sessionScope);
+    const activeRoots = getActiveGatewayRootWorkCount();
+    const entered = createDeferred();
+    const continueWork = gatewayWorkAdmission.runWithGatewayDetachedWorkContinuation;
+    const continuation = vi
+      .spyOn(gatewayWorkAdmission, "runWithGatewayDetachedWorkContinuation")
+      .mockImplementation((...args) => {
+        const pending = continueWork(...args);
+        entered.resolve();
+        return pending;
+      });
+    const suspension = gatewayWorkAdmission.tryBeginGatewaySuspendAdmission(() => {});
+    expect(suspension?.commit()).toBe(true);
+    const delivery = completion.deliver();
+    const rejected = expect(delivery).rejects.toMatchObject({ name: "AbortError" });
+    try {
+      await withinTest(reachBoundary(entered.promise, delivery), signal);
+      expect(continuation).toHaveBeenCalledOnce();
+      const admissionSignal = expectDefined(
+        continuation.mock.calls[0]?.[2],
+        "custody admission signal",
+      );
+      expect(admissionSignal.aborted).toBe(false);
+      await completion.changeOwner("operator-revoked");
+      await withinTest(rejected, signal);
+      expect(admissionSignal.aborted).toBe(true);
+      expect(gatewayWorkAdmission.getGatewaySuspendAdmissionPhase()).toBe("prepared");
+      expect(getActiveGatewayRootWorkCount()).toBe(activeRoots);
+      expect(agentCommandMock).not.toHaveBeenCalled();
+      expect(context.dedupe.has(`agent:${completion.idempotencyKey}`)).toBe(false);
+      expect((await listSessionPendingInputs(completion.sessionScope)).total).toBe(0);
+      expect(sessionAccessor.loadTranscriptEventsSync(completion.sessionScope)).toEqual(before);
+    } finally {
+      suspension?.release();
+      await Promise.allSettled([delivery, rejected]);
+      continuation.mockRestore();
+    }
+  });
+
+  it.for(["live", "operator-revoked", "requester-replaced"] as const)(
+    "revalidates %s authority at real Gateway input staging after foreground scope closes",
     async (change, { signal }) => {
       await prepareGatewayReplyRuntimeForTest();
       const context = kernel.gatewayRequestContext;
@@ -348,7 +399,16 @@ describe("native completion final-effect authority", () => {
         return { payloads: [{ text: "Child received", mediaUrl: null }], meta: { durationMs: 1 } };
       });
       expect(context.dedupe.has(`agent:${completion.idempotencyKey}`)).toBe(false);
-      const delivery = completion.deliver();
+      const foreground = new AsyncWorkScope();
+      const resumeMonitor = foreground.run(() => AsyncLocalStorage.snapshot());
+      await foreground.drain();
+      expect(foreground.signal.aborted).toBe(true);
+      const deliver = () =>
+        resumeMonitor(() => {
+          expect(getAsyncWorkSignal()).toBe(foreground.signal);
+          return completion.deliver();
+        });
+      const delivery = deliver();
       try {
         await reachBoundary(entered.promise, delivery);
         await completion.changeOwner(change);
@@ -356,12 +416,27 @@ describe("native completion final-effect authority", () => {
         const result = await delivery;
         // The RPC responds before its request owner releases the unaccepted reservation.
         await settleRequests();
-        expect(result.delivered).toBe(false);
-        expect(execution).not.toHaveBeenCalled();
-        expect(agentCommandMock).not.toHaveBeenCalled();
         expect((await listSessionPendingInputs(completion.sessionScope)).total).toBe(0);
-        expect(sessionAccessor.loadTranscriptEventsSync(completion.sessionScope)).toEqual(before);
-        expect(context.dedupe.get(`agent:${completion.idempotencyKey}`)).toBeUndefined();
+        if (change === "live") {
+          expect(result).toMatchObject({ delivered: true, path: "direct" });
+          expect(execution).toHaveBeenCalledOnce();
+          expect(agentCommandMock).toHaveBeenCalledOnce();
+          expect(context.dedupe.get(`agent:${completion.idempotencyKey}`)).toMatchObject({
+            ok: true,
+          });
+          const events = sessionAccessor.loadTranscriptEventsSync(completion.sessionScope);
+          expect(JSON.stringify(events)).toContain(`${completion.idempotencyKey}:user`);
+          await deliver();
+          await settleRequests();
+          expect(agentCommandMock).toHaveBeenCalledOnce();
+          expect(sessionAccessor.loadTranscriptEventsSync(completion.sessionScope)).toEqual(events);
+        } else {
+          expect(result.delivered).toBe(false);
+          expect(execution).not.toHaveBeenCalled();
+          expect(agentCommandMock).not.toHaveBeenCalled();
+          expect(sessionAccessor.loadTranscriptEventsSync(completion.sessionScope)).toEqual(before);
+          expect(context.dedupe.get(`agent:${completion.idempotencyKey}`)).toBeUndefined();
+        }
       } finally {
         release();
         await Promise.allSettled([delivery, settleRequests()]);

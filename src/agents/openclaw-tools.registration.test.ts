@@ -1,11 +1,16 @@
 // Verifies OpenClaw tool registration, availability, and construction policy.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
+import {
+  claimAgentRunDelegatedAuthority,
+  releaseAgentRunDelegatedAuthority,
+} from "../infra/agent-run-registry.js";
 import { setEmbeddedMode } from "../infra/embedded-mode.js";
 import type { WidgetPresenter } from "../plugins/plugin-registration.types.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import { resetPluginRuntimeStateForTest, setActivePluginRegistry } from "../plugins/runtime.js";
 import * as userProfileList from "../state/user-profile-list.js";
+import { createTestAdmittedRunContext } from "./admitted-run-context.test-support.js";
 import { finalizeAgentToolAvailability } from "./agent-tool-availability.js";
 import { createOpenClawCodingTools } from "./agent-tools.js";
 import { createCodeModeTools } from "./code-mode.js";
@@ -20,7 +25,10 @@ import {
   shouldIncludePrimarySessionToolForOpenClawTools,
   shouldIncludeProgressCardToolForOpenClawTools,
 } from "./openclaw-tools.registration.js";
-import { getGatewayToolCallerIdentity } from "./tools/gateway-caller-context.js";
+import {
+  getGatewayToolCallerIdentity,
+  withGatewayToolCallerIdentity,
+} from "./tools/gateway-caller-context.js";
 import * as inProcessGateway from "./tools/in-process-gateway.js";
 
 vi.mock("./openclaw-plugin-tools.js", () => ({
@@ -190,6 +198,21 @@ describe("openclaw-tools progress_card gating", () => {
     expect(toolNames(tools)).toContain("message");
   });
 
+  it.each([
+    { forceMessageTool: false, disableMessageTool: false, included: false },
+    { forceMessageTool: true, disableMessageTool: false, included: true },
+    { forceMessageTool: true, disableMessageTool: true, included: false },
+  ])("respects embedded message construction flags: %j", ({ included, ...flags }) => {
+    setEmbeddedMode(true);
+    const tools = createTestOpenClawTools({
+      disablePluginTools: true,
+      wrapBeforeToolCallHook: false,
+      sourceReplyDeliveryMode: "automatic",
+      ...flags,
+    });
+    expect(toolNames(tools).includes("message")).toBe(included);
+  });
+
   it("exposes delegation only to regular unsandboxed gateway agents", () => {
     const regular = createFastToolNames({
       agentSessionKey: "agent:main:main",
@@ -229,6 +252,169 @@ describe("openclaw-tools progress_card gating", () => {
 
     expect(defaultTools).toContain("transcripts");
     expect(disabledTools).not.toContain("transcripts");
+  });
+
+  it("keeps automation catalog declarations across owner and callerless completion", async () => {
+    const runId = "automation-catalog-owner";
+    const sessionKey = "agent:main:dashboard:catalog";
+    const { operationalRunInstance } = createTestAdmittedRunContext(runId);
+    const authority = claimAgentRunDelegatedAuthority(operationalRunInstance);
+    const capability = createCronCreatorAuthorityCapability(
+      runId,
+      { kind: "local" },
+      { source: "control-ui-admin" },
+    )!;
+    const options = {
+      runId,
+      agentId: "main",
+      sessionKey,
+      workspaceDir: process.cwd(),
+      config: { tools: { allow: ["automations"] } },
+      catalogOnly: true,
+    };
+    try {
+      const initial = await runWithCronCreatorAuthorityCapability(capability, () =>
+        withGatewayToolCallerIdentity(
+          {
+            agentId: "main",
+            sessionKey,
+            operationalRunInstance,
+            approvalAuthority: authority,
+          },
+          () => createOpenClawCodingTools(options),
+        ),
+      );
+      const initialTool = expectToolNamed(initial, "automations");
+      const completionTool = expectToolNamed(createOpenClawCodingTools(options), "automations");
+      expect(completionTool.parameters).toEqual(initialTool.parameters);
+      expect(completionTool.description).toBe(initialTool.description);
+      expect(completionTool.outputSchema).toEqual(initialTool.outputSchema);
+      expect(completionTool.parameters).toHaveProperty("properties.job.properties.agentId");
+      expect(completionTool.parameters).toHaveProperty(
+        "properties.job.properties.payload.properties.argv",
+      );
+      expect(completionTool.parameters).toHaveProperty(
+        "properties.job.properties.payload.properties.kind.enum",
+        ["systemEvent", "agentTurn", "script", "command"],
+      );
+      await expect(completionTool.execute("catalog", { action: "list" })).rejects.toThrow(
+        "catalog-only",
+      );
+      expect(
+        toolNames(
+          createOpenClawCodingTools({
+            ...options,
+            config: { tools: { allow: ["automations"], deny: ["automations"] } },
+          }),
+        ),
+      ).not.toContain("automations");
+    } finally {
+      releaseAgentRunDelegatedAuthority(authority);
+    }
+  });
+
+  it("keeps the full native catalog across a Control UI turn and callerless completion", async () => {
+    const invoke = vi.fn();
+    const options = {
+      config: withDefaultRoster({ tools: { profile: "full" } }),
+      sessionKey: "agent:main:dashboard:catalog-ui",
+      workspaceDir: process.cwd(),
+      disablePluginTools: true,
+      catalogOnly: true,
+    } as const;
+    const initial = createOpenClawCodingTools({
+      ...options,
+      clientCaps: ["ui-commands", "task-suggestions", "inline-widgets", "ui-agent-github-settings"],
+      taskSuggestionDeliveryMode: "gateway",
+      skillWorkshop: {
+        libraryAuthoring: {
+          target: "personal",
+          defaultTarget: "workspace",
+          multipleProfiles: false,
+          bind: vi.fn(),
+          invoke,
+        },
+      },
+    });
+    const completion = createOpenClawCodingTools(options);
+    const declarations = (tools: typeof initial) =>
+      tools
+        .map(({ name, description, parameters, outputSchema }) => ({
+          name,
+          description,
+          parameters,
+          outputSchema,
+        }))
+        .toSorted((a, b) => a.name.localeCompare(b.name));
+    expect(declarations(completion)).toEqual(declarations(initial));
+    for (const name of ["screen", "suggest_task", "dismiss_task", "skill_workshop"]) {
+      await expect(expectToolNamed(completion, name).execute("catalog", {})).rejects.toThrow(
+        "catalog-only",
+      );
+    }
+    expect(invoke).not.toHaveBeenCalled();
+    const executable = createOpenClawCodingTools({ ...options, catalogOnly: false });
+    expect(toolNames(executable)).not.toEqual(expect.arrayContaining(["screen"]));
+    expect(toolNames(executable)).not.toEqual(expect.arrayContaining(["suggest_task"]));
+    expect(toolNames(executable)).not.toEqual(expect.arrayContaining(["dismiss_task"]));
+    expect(JSON.stringify(expectToolNamed(executable, "skill_workshop").parameters)).not.toContain(
+      'expected_revision"',
+    );
+    const denied = createOpenClawCodingTools({
+      ...options,
+      config: withDefaultRoster({
+        tools: { deny: ["screen", "suggest_task", "dismiss_task", "skill_workshop"] },
+      }),
+    });
+    for (const name of ["screen", "suggest_task", "dismiss_task", "skill_workshop"]) {
+      expect(toolNames(denied)).not.toContain(name);
+    }
+  });
+
+  it("removes collector affordances from catalog declarations when their dependency is denied", () => {
+    const tools = createOpenClawCodingTools({
+      config: withDefaultRoster({ tools: { deny: ["agents_wait"] } }),
+      sessionKey: "agent:main:dashboard:catalog-ui",
+      catalogOnly: true,
+    });
+    const spawn = expectToolNamed(tools, "sessions_spawn");
+    expect(toolNames(tools)).not.toContain("agents_wait");
+    expect(JSON.stringify(spawn.parameters)).not.toContain('"collect"');
+    expect(JSON.stringify(spawn.parameters)).not.toContain('"outputSchema"');
+    expect(spawn.description).not.toContain("agents_wait");
+  });
+
+  it("keeps sandbox personal Workshop discovery inert without granting workspace access", async () => {
+    const options = {
+      config: withDefaultRoster(undefined),
+      agentSessionKey: "agent:main:dashboard:catalog-sandbox",
+      sandboxed: true,
+      catalogOnly: true,
+    };
+    const personal = expectToolNamed(createOpenClawTools(options), "skill_workshop");
+    const initial = expectToolNamed(
+      createOpenClawTools({
+        ...options,
+        skillWorkshop: {
+          libraryAuthoring: {
+            target: "personal",
+            defaultTarget: "personal",
+            multipleProfiles: false,
+            bind: vi.fn(),
+            invoke: vi.fn(),
+          },
+        },
+      }),
+      "skill_workshop",
+    );
+    expect(personal.parameters).toEqual(initial.parameters);
+    expect(personal.description).toBe(initial.description);
+    expect(JSON.stringify(personal.parameters)).toContain('"expected_revision"');
+    expect(JSON.stringify(personal.parameters)).not.toContain('"write_file"');
+    await expect(personal.execute("catalog", { action: "list" })).rejects.toThrow("catalog-only");
+    expect(toolNames(createOpenClawTools({ ...options, catalogOnly: false }))).not.toContain(
+      "skill_workshop",
+    );
   });
 
   it("registers task suggestions only for sessions with an actionable gateway sink", () => {

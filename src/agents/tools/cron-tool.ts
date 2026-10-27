@@ -232,13 +232,12 @@ Job wakeMode (main jobs): "now"(default)|"next-heartbeat". Restricted automation
 }
 
 export function createCronTool(opts?: CronToolOptions, deps?: CronToolDeps): AnyAgentTool {
-  const gatewayCall = deps?.callGatewayTool ?? callGatewayTool;
-  const managementAuthority = bindCronManagementGrant(opts?.runId);
-  const requesterAuthority = bindCronRequesterGrant(opts?.runId);
+  const catalogOnly = opts?.catalogOnly === true;
+  const managementAuthority = catalogOnly ? undefined : bindCronManagementGrant(opts?.runId);
   // Trigger-gated surfaces default on, matching cron/service/jobs-validation.ts.
   const triggersEnabled = opts?.config?.cron?.triggers?.enabled !== false;
   const selfRemoveOnly = Boolean(readCronSelfRemoveOnlyJobId(opts));
-  const tool: AnyAgentTool = {
+  const definition = {
     label: "Automations",
     name: AUTOMATIONS_TOOL_NAME,
     displaySummary: CRON_TOOL_DISPLAY_SUMMARY,
@@ -254,12 +253,28 @@ export function createCronTool(opts?: CronToolOptions, deps?: CronToolDeps): Any
       agentSessionKey: opts?.agentSessionKey,
       triggersEnabled,
       selfRemoveOnly,
-      management: managementAuthority
-        ? managementAuthority.managementOnly
-          ? "only"
-          : "also"
-        : undefined,
+      // The persistent catalog describes configured capabilities, not ephemeral grants.
+      management: catalogOnly
+        ? "also"
+        : managementAuthority
+          ? managementAuthority.managementOnly
+            ? "only"
+            : "also"
+          : undefined,
     }),
+  };
+  if (catalogOnly) {
+    return {
+      ...definition,
+      execute: async () => {
+        throw new Error("A catalog-only automation declaration cannot execute");
+      },
+    };
+  }
+  const gatewayCall = deps?.callGatewayTool ?? callGatewayTool;
+  const requesterAuthority = bindCronRequesterGrant(opts?.runId);
+  const tool: AnyAgentTool = {
+    ...definition,
     execute: async (_toolCallId, args, operationSignal) => {
       operationSignal?.throwIfAborted();
       const callGateway: typeof callGatewayTool = async <T>(

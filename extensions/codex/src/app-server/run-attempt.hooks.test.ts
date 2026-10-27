@@ -18,6 +18,7 @@ import {
 } from "openclaw/plugin-sdk/plugin-test-runtime";
 import { describe, expect, it, vi } from "vitest";
 import { readAttemptTerminal } from "./attempt-terminal.test-helper.js";
+import { observeAttemptProjectionReady } from "./run-attempt-lifecycle.test-support.js";
 import {
   assistantMessage,
   createCodexRuntimePlanFixture,
@@ -26,6 +27,7 @@ import {
   createStartedThreadHarness,
   fastWait,
   mockCall,
+  queueActiveRunMessageForTest,
   runCodexAppServerAttempt,
   setupRunAttemptTestHooks,
   tempDir,
@@ -261,6 +263,106 @@ describe("runCodexAppServerAttempt hooks and model diagnostics", () => {
     expect(detachBackend).toHaveBeenCalledWith(replyBackend);
     expect(resolveActiveEmbeddedRunSessionId("agent:main:session-1")).toBeUndefined();
   });
+
+  it.each([false, true])(
+    "keeps the persisted user in agent_end without rewriting it (steering: %s)",
+    async (withSteering) => {
+      const agentEnd = vi.fn();
+      initializeGlobalHookRunner(
+        createMockPluginRegistry([{ hookName: "agent_end", handler: agentEnd }]),
+      );
+      const persistedUser = Object.freeze({
+        role: "user" as const,
+        content: "Remember alpha",
+        timestamp: 1,
+        idempotencyKey: "turn-1:user",
+      });
+      const markRuntimePersisted = vi.fn();
+      const persistApproved = vi.fn();
+      let pendingRefresh = false;
+      const params = createTestParams();
+      params.prompt = persistedUser.content;
+      params.toolAuthorityFingerprint = "observer-steering-tools";
+      params.suppressNextUserMessagePersistence = true;
+      params.pluginRuntimeRefreshPending = () => pendingRefresh;
+      params.userTurnTranscriptRecorder = {
+        message: persistedUser,
+        getAdmissionReceipt: () => undefined,
+        getPersistedMessage: () => persistedUser,
+        markRuntimePersisted,
+        persistApproved,
+      } as unknown as NonNullable<typeof params.userTurnTranscriptRecorder>;
+      const harness = createStartedThreadHarness();
+      const projectionReady = observeAttemptProjectionReady();
+      const run = runCodexAppServerAttempt(params);
+      await run.waitForTurnAccepted();
+      await projectionReady();
+
+      if (withSteering) {
+        expect(
+          queueActiveRunMessageForTest(params.sessionId, "Also beta", {
+            debounceMs: 0,
+            isInboundUserMessage: true,
+            toolAuthorityFingerprint: params.toolAuthorityFingerprint,
+          }),
+        ).toBe(true);
+        await harness.waitForMethod("turn/steer");
+        const steer = harness.requests.find((entry) => entry.method === "turn/steer");
+        const clientUserMessageId = (steer?.params as { clientUserMessageId?: string } | undefined)
+          ?.clientUserMessageId;
+        if (!clientUserMessageId) {
+          throw new Error("turn/steer clientUserMessageId missing");
+        }
+        await harness.notify({
+          method: "item/completed",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            item: {
+              id: "steered-user-message",
+              type: "userMessage",
+              clientId: clientUserMessageId,
+            },
+          },
+        });
+        pendingRefresh = true;
+      }
+      await harness.notify({
+        method: "item/completed",
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          item: { id: "msg-final", type: "agentMessage", text: "Done.", status: "completed" },
+        },
+      });
+      await harness.completeTurn({ threadId: "thread-1", turnId: "turn-1" });
+      const result = await run;
+      expect(readAttemptTerminal(result).promptError).toBeNull();
+      expect(agentEnd).toHaveBeenCalledTimes(1);
+      const event = mockCall(agentEnd, "agent_end")[0] as {
+        messages: Array<{ role: string; content: unknown }>;
+      };
+      expect(event.messages.filter((message) => message.role === "user")).toEqual([
+        expect.objectContaining(persistedUser),
+        ...(withSteering ? [expect.objectContaining({ role: "user", content: "Also beta" })] : []),
+      ]);
+      expect(event.messages.filter((message) => message.role === "assistant")).toHaveLength(1);
+      // Observer restoration must not put the suppressed prompt into the mirror snapshot.
+      expect(
+        result.messagesSnapshot.some(
+          (message) => message.role === "user" && message.content === persistedUser.content,
+        ),
+      ).toBe(false);
+      expect(markRuntimePersisted).not.toHaveBeenCalled();
+      expect(persistApproved).not.toHaveBeenCalled();
+      expect(persistedUser).toEqual({
+        role: "user",
+        content: "Remember alpha",
+        timestamp: 1,
+        idempotencyKey: "turn-1:user",
+      });
+    },
+  );
 
   it("keeps replay-safe client-close recovery cancellable during agent_end", async () => {
     const { agentEnd, releaseAgentEnd } = holdAgentEnd();

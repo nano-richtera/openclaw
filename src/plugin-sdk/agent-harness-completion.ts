@@ -28,6 +28,7 @@ import {
   getGatewayContextResolver,
   withPluginRuntimeGatewayContextResolver,
 } from "../plugins/runtime/gateway-request-scope.js";
+import { runWithGatewayDetachedWorkContinuation } from "../process/gateway-work-admission.js";
 export {
   captureAgentHarnessCompletionCustody,
   createAgentHarnessCompletionEventSink,
@@ -205,7 +206,11 @@ export async function deliverAgentHarnessCompletion(params: {
       ? withPluginRuntimeGatewayContextResolver(resolveGatewayContext, deliver)
       : deliver();
   return completionCustody
-    ? await runWithAgentHarnessCompletionCustody(completionCustody, scope, deliverInGateway)
+    ? await runWithAgentHarnessCompletionCustody(completionCustody, scope, () =>
+        // Native callbacks can retain a foreground scope that closed after yield.
+        // Custody supplies authority; this owner tracks the delivery's async work.
+        runWithGatewayDetachedWorkContinuation(deliverInGateway, "harness:completion", signal),
+      )
     : await deliverInGateway();
 }
 

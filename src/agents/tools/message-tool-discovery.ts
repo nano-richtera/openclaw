@@ -31,6 +31,8 @@ import { listAllChannelSupportedActions, listChannelSupportedActions } from "../
 import { buildMessageToolSchemaFromActions } from "./message-tool-schema.js";
 export type MessageToolDiscoveryParams = {
   cfg: OpenClawConfig;
+  /** Include built-in source-specific features in an inert persistent declaration. */
+  catalogOnly?: boolean;
   currentChatType?: ChatType;
   currentChannelProvider?: string;
   currentChannelId?: string;
@@ -365,7 +367,7 @@ function resolveIncludeBestEffort(params: MessageToolDiscoveryParams): boolean {
 export function buildMessageToolSchema(params: MessageToolDiscoveryParams, actions: string[]) {
   const includePresentation = resolveIncludeCapability(params, "presentation");
   const includeDeliveryPin = resolveIncludeCapability(params, "delivery-pin");
-  const includeBestEffort = resolveIncludeBestEffort(params);
+  const includeBestEffort = params.catalogOnly === true || resolveIncludeBestEffort(params);
   const extraProperties = resolveChannelMessageToolSchemaProperties({
     ...buildMessageActionDiscoveryInput(
       params,
@@ -378,6 +380,7 @@ export function buildMessageToolSchema(params: MessageToolDiscoveryParams, actio
   });
   return buildMessageToolSchemaFromActions(actions.length > 0 ? actions : ["send"], {
     includeClawHub:
+      params.catalogOnly === true ||
       normalizeMessageChannel(params.currentChannelProvider) === INTERNAL_MESSAGE_CHANNEL,
     includePresentation,
     includeDeliveryPin,

@@ -3,13 +3,15 @@ import type { SkillLibraryAuthoringCapability } from "../library/authoring.js";
 export type SkillWorkshopToolConstructionContext = {
   sandboxed?: boolean;
   libraryAuthoring?: SkillLibraryAuthoringCapability;
+  /** Inert discovery may describe personal operations; it grants no executor. */
+  catalogOnly?: boolean;
 };
 
 /** Host-side Workshop access requires an unsandboxed run or a host-issued library capability. */
 export function resolveSkillWorkshopToolConstructionBlock(
   context: SkillWorkshopToolConstructionContext,
 ): { detail: string; fix: string } | undefined {
-  if (context.sandboxed && !context.libraryAuthoring) {
+  if (context.sandboxed && !context.libraryAuthoring && !context.catalogOnly) {
     return {
       detail:
         '"skill_workshop" is unavailable in a sandboxed run without library-authoring authority.',

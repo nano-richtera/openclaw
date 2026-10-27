@@ -30,6 +30,8 @@ import type {
   EmbeddedRunAttemptParams,
   EmbeddedRunAttemptResult,
 } from "../embedded-agent-runner/run/types.js";
+import { buildAgentInternalEventContext } from "../internal-events.js";
+import { projectRuntimeContextFragments } from "../internal-runtime-context.js";
 import {
   unwrapModelHeaderSentinelsForProviderEgress,
   unwrapSecretSentinelsForProviderEgress,
@@ -626,10 +628,25 @@ function preparePluginHarnessParams(
     ? unwrapSecretSentinelsForProviderEgress(params.resolvedApiKey, boundary)
     : params.resolvedApiKey;
   const model = unwrapModelHeaderSentinelsForProviderEgress(params.model, boundary);
+  // Native harnesses consume prepared inbound context, not the typed event fields.
+  const fragments = buildAgentInternalEventContext(
+    params.internalEvents,
+    params.runtimeContextFragments,
+  ).filter((fragment) => fragment.text.trim());
+  const currentInboundContext =
+    fragments.length === 0
+      ? params.currentInboundContext
+      : appendCurrentInboundContext(
+          params.currentInboundContext,
+          fragments,
+          projectRuntimeContextFragments(fragments),
+        );
   const preparedParams =
-    model === params.model && resolvedApiKey === params.resolvedApiKey
+    model === params.model &&
+    resolvedApiKey === params.resolvedApiKey &&
+    currentInboundContext === params.currentInboundContext
       ? params
-      : { ...params, model, resolvedApiKey };
+      : { ...params, model, resolvedApiKey, currentInboundContext };
   const policies = resolvePluginHarnessToolPolicies(
     preparedParams,
     harness.conversationToolPolicySupport === "exact"
