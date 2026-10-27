@@ -6,7 +6,11 @@ import { initializeGlobalHookRunner } from "openclaw/plugin-sdk/hook-runtime";
 import { createMockPluginRegistry } from "openclaw/plugin-sdk/plugin-test-runtime";
 import { describe, expect, it, vi } from "vitest";
 import { readAttemptTerminal } from "./attempt-terminal.test-helper.js";
-import { createCodexTestHostCapabilities } from "./host-capability.test-support.js";
+import { protectCodexAppServerLiveThread } from "./client-runtime.js";
+import {
+  createCodexTestHostCapabilities,
+  setCodexTestToolFactory,
+} from "./host-capability.test-support.js";
 import {
   getCodexInferenceThread,
   getCodexInferenceThreadQualification,
@@ -300,6 +304,69 @@ describe("Codex participant native admission", () => {
 
 describe("Codex native hook Gateway fallback", () => {
   setupRunAttemptTestHooks();
+  it("preserves optional hook policy when a protected parent's completion has no source grant", async () => {
+    const sessionFile = path.join(tempDir, "optional-hook-continuity.jsonl");
+    const workspaceDir = path.join(tempDir, "optional-hook-workspace");
+    // A real leased client registration is required by cold-resume preflight;
+    // the lightweight unregistered fake can cover warm reuse but not policy refusal.
+    const harness = createStartedThreadHarness(
+      async (method) => (method === "account/read" ? { account: { type: "apiKey" } } : undefined),
+      { persistedThreads: [] },
+    );
+    ownCodexInferenceClient(harness.client);
+    const bindingStore = createCodexTestBindingStore();
+    const preflight = vi.spyOn(threadLifecyclePreflight, "prepareCodexThreadLifecyclePreflight");
+    const ownerCapabilities = participantHostCapabilities(() => {});
+    const makeParams = (privateCompletion: boolean, policy = "Persistent synthetic policy.") => {
+      const params = createParams(sessionFile, workspaceDir, {
+        runId: privateCompletion ? "private-completion" : "owner-turn",
+      });
+      params.extraSystemPrompt = policy;
+      params.agentDir = path.join(tempDir, "wire-agent");
+      params.hostCapabilities = createCodexTestHostCapabilities({
+        ...ownerCapabilities,
+        retainSourceAuthority: privateCompletion
+          ? () => undefined
+          : ownerCapabilities.retainSourceAuthority,
+      });
+      // Keep declaration inputs fixed: this regression isolates source-grant loss,
+      // not catalog recovery or changing conversation instructions.
+      setCodexTestToolFactory(params, () => []);
+      return params;
+    };
+    let releaseProtection = () => {};
+    try {
+      for (const privateCompletion of [false, true]) {
+        const run = runCodexAppServerAttempt(makeParams(privateCompletion), { bindingStore });
+        await run.waitForTurnAccepted();
+        if (!privateCompletion) {
+          releaseProtection = protectCodexAppServerLiveThread(harness.client, "thread-1");
+        }
+        await harness.completeTurn({ threadId: "thread-1", turnId: "turn-1" });
+        expect(readAttemptTerminal(await run).promptError).toBeNull();
+      }
+      expect(preflight.mock.calls.map(([params]) => params.nativeModelAdmission)).toEqual([
+        "optional",
+        "optional",
+      ]);
+      expect(
+        harness.requests
+          .filter(({ method }) => ["thread/start", "thread/resume"].includes(method))
+          .map(({ method }) => method),
+      ).toEqual(["thread/start"]);
+      const initial = harness.requests.find(({ method }) => method === "thread/start");
+      expect(initial?.params).toHaveProperty(["config", "hooks.PreToolUse", 0]);
+      // Preserving optional hook configuration is not permission to replace
+      // a protected parent's actual persistent policy.
+      await expect(
+        runCodexAppServerAttempt(makeParams(false, "Changed persistent policy."), { bindingStore }),
+      ).rejects.toThrow(/claimed by active work/);
+    } finally {
+      releaseProtection();
+      harness.close();
+    }
+  });
+
   it("publishes cross-profile steering from effective delegation policy and installed admission", async () => {
     const registered = vi.spyOn(agentHarnessRuntime, "setActiveEmbeddedRun");
     for (const { hooks, policy, supportsSteering } of [
